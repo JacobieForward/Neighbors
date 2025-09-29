@@ -1,0 +1,23 @@
+# Game Configuration
+
+# Starting resources for all entities
+STARTING_FREE_LAND = 500
+STARTING_WORKED_LAND = 200
+STARTING_PEASANTS = 2000
+STARTING_SOLDIERS = 200
+
+# Economic constants
+PEASANT_GROWTH_RATE = 0.1
+PEASANTS_PER_ACRE = 10
+REVENUE_PER_PEASANT = 1
+EXPENSE_PER_SOLDIER = 3
+
+# Combat constants
+ATTACKER_PENALTY = 0.8
+DEFENDER_BONUS = 1.2
+MIN_ATTACK_FORCE = 50
+
+# Game settings
+MAX_NEIGHBORS = 3
+TURN_DELAY = 1  # seconds between turns
+

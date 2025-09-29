@@ -1,0 +1,198 @@
+import random
+from typing import List, Dict, Any
+
+class GameState:
+    def __init__(self):
+        self.turn = 0
+        self.player = None
+        self.neighbors = []
+        self.message_queue = []
+        self.diplomatic_relations = {}  # Store alliances, tribute agreements, etc.
+        self.combat_queue = []
+        self.combat_results = []  # Store combat results to display later
+        
+    def initialize_game(self, player, neighbors):
+        """Initialize the game with starting resources"""
+        self.player = player
+        self.neighbors = neighbors
+        
+        # Initialize diplomatic relations
+        all_entities = [player] + neighbors
+        for i, entity1 in enumerate(all_entities):
+            for j, entity2 in enumerate(all_entities):
+                if i != j:
+                    key = (entity1.name, entity2.name)
+                    self.diplomatic_relations[key] = {
+                        'trust': 50,  # 0-100 scale
+                        'alliance': False,
+                        'tribute': None,  # None, 'paying', 'receiving'
+                        'non_aggression': False
+                    }
+    
+    def get_entity_by_name(self, name):
+        """Get entity (player or neighbor) by name"""
+        if self.player.name == name:
+            return self.player
+        for neighbor in self.neighbors:
+            if neighbor.name == name:
+                return neighbor
+        return None
+    
+    def get_relative_power(self, entity1, entity2):
+        """Calculate relative power between two entities"""
+        power1 = entity1.get_total_power()
+        power2 = entity2.get_total_power()
+        
+        ratio = power1 / power2 if power2 > 0 else float('inf')
+        
+        if ratio < 0.3:
+            return "Miniscule"
+        elif ratio < 0.6:
+            return "Inferior"
+        elif ratio < 1.4:
+            return "Equal"
+        elif ratio < 2.0:
+            return "Greater"
+        else:
+            return "Overwhelming"
+    
+    def resolve_combat(self):
+        """Resolve all queued combat actions"""
+        for combat in self.combat_queue:
+            self.process_combat(combat)
+        self.combat_queue.clear()
+    
+    def process_combat(self, combat_data):
+        """Process a single combat between two entities"""
+        attacker = combat_data['attacker']
+        defender = combat_data['defender']
+        attacker_soldiers = combat_data['attacker_soldiers']
+        
+        # Simple combat resolution
+        defender_soldiers = defender.soldiers
+        
+        # Attacker needs advantage to win
+        attack_power = attacker_soldiers * 0.8  # Attacker penalty
+        defense_power = defender_soldiers * 1.2  # Defender bonus
+        
+        total_power = attack_power + defense_power
+        attacker_win_chance = attack_power / total_power if total_power > 0 else 0.5
+        
+        if random.random() < attacker_win_chance:
+            # Attacker wins
+            self.handle_attacker_victory(attacker, defender, attacker_soldiers, defender_soldiers)
+        else:
+            # Defender wins
+            self.handle_defender_victory(attacker, defender, attacker_soldiers, defender_soldiers)
+    
+    def handle_attacker_victory(self, attacker, defender, attacker_soldiers, defender_soldiers):
+        """Handle attacker victory"""
+        # Attacker gains land and peasants
+        land_gained = min(50, defender.free_land + defender.worked_land // 4)
+        peasants_gained = min(200, defender.peasants // 4)
+        
+        # Transfer resources
+        defender.free_land = max(0, defender.free_land - land_gained)
+        defender.worked_land = max(0, defender.worked_land - land_gained)
+        defender.peasants = max(0, defender.peasants - peasants_gained)
+        
+        attacker.free_land += land_gained
+        attacker.peasants += peasants_gained
+        
+        # Both sides lose soldiers
+        attacker_losses = attacker_soldiers // 3
+        defender_losses = defender_soldiers // 2
+        
+        attacker.soldiers = max(0, attacker.soldiers - attacker_losses)
+        defender.soldiers = max(0, defender.soldiers - defender_losses)
+        
+        # Store combat result with more detail
+        result = f"{attacker.name} defeats {defender.name}! Gains {land_gained} acres and {peasants_gained} peasants."
+        self.combat_results.append(result)
+        
+        # Track specific results for player
+        if attacker == self.player:
+            # Player's outgoing attack
+            if hasattr(self, 'renderer') and self.renderer:
+                self.renderer.add_player_attack_result(f"Victory! You gained {land_gained} acres and {peasants_gained} peasants from {defender.name}.")
+        elif defender == self.player:
+            # Attack against player
+            if hasattr(self, 'renderer') and self.renderer:
+                self.renderer.add_incoming_attack_result(f"Defeated by {attacker.name}! Lost {land_gained} acres and {peasants_gained} peasants.")
+    
+    def handle_defender_victory(self, attacker, defender, attacker_soldiers, defender_soldiers):
+        """Handle defender victory"""
+        # Defender gains nothing but attacker loses heavily
+        attacker_losses = attacker_soldiers // 2
+        defender_losses = defender_soldiers // 4
+        
+        attacker.soldiers = max(0, attacker.soldiers - attacker_losses)
+        defender.soldiers = max(0, defender.soldiers - defender_losses)
+        
+        # Store combat result with more detail
+        result = f"{defender.name} repels {attacker.name}'s attack! {attacker.name} loses {attacker_losses} soldiers."
+        self.combat_results.append(result)
+        
+        # Track specific results for player
+        if attacker == self.player:
+            # Player's outgoing attack failed
+            if hasattr(self, 'renderer') and self.renderer:
+                self.renderer.add_player_attack_result(f"Attack failed! {defender.name} repelled your attack. You lost {attacker_losses} soldiers.")
+        elif defender == self.player:
+            # Player successfully defended
+            if hasattr(self, 'renderer') and self.renderer:
+                self.renderer.add_incoming_attack_result(f"Successfully defended against {attacker.name}! They lost {attacker_losses} soldiers.")
+    
+    def get_combat_results(self):
+        """Get and clear combat results"""
+        results = self.combat_results.copy()
+        self.combat_results.clear()
+        return results
+    
+    def process_diplomacy(self):
+        """Process diplomatic actions and agreements"""
+        # This will handle alliance effects, tribute payments, etc.
+        pass
+    
+    def update_economy(self):
+        """Update all entities' economies"""
+        all_entities = [self.player] + self.neighbors
+        
+        for entity in all_entities:
+            entity.update_economy()
+    
+    def process_messages(self):
+        """Process queued messages between entities"""
+        for message in self.message_queue:
+            recipient = self.get_entity_by_name(message['recipient'])
+            if recipient:
+                recipient.receive_message(message)
+        self.message_queue.clear()
+    
+    def send_message(self, sender, recipient_name, content):
+        """Queue a message to be delivered next turn"""
+        self.message_queue.append({
+            'sender': sender.name,
+            'recipient': recipient_name,
+            'content': content,
+            'turn': self.turn
+        })
+    
+    def is_game_over(self):
+        """Check if game should end"""
+        # Game ends if player has no subjects or no land
+        if self.player.peasants <= 0 or (self.player.free_land + self.player.worked_land) <= 0:
+            return True
+        
+        # Game ends if player controls all land
+        total_land = sum(entity.free_land + entity.worked_land for entity in [self.player] + self.neighbors)
+        player_land = self.player.free_land + self.player.worked_land
+        
+        if player_land >= total_land * 0.9:  # 90% control
+            return True
+            
+        return False
+    
+    def check_victory_conditions(self):
+        """Check for victory conditions"""
+        return self.is_game_over()
