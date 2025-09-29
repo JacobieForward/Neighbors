@@ -5,3 +5,7 @@ wheels/
 
 .env
 
+
+# build artifacts
+dist/
+*.whl
