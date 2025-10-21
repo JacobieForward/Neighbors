@@ -6,6 +6,7 @@ from ai_neighbor import AINeighbor
 from llm_neighbor import LLMNeighbor
 from renderer import Renderer
 from actions import ActionHandler
+from dotenv import load_dotenv
 
 def main():
     # Initialize game state
@@ -46,9 +47,8 @@ def main():
         for neighbor in neighbors:
             neighbor.reset_turn()
         
-        # Randomize turn order (no player advantage)
+        # Fixed turn order: player first, then neighbors in creation order
         all_entities = [player] + neighbors
-        random.shuffle(all_entities)
         
         for entity in all_entities:
             if entity == player:
@@ -84,4 +84,5 @@ def main():
     renderer.display_final_results(game_state)
 
 if __name__ == "__main__":
+    load_dotenv()
     main()
