@@ -1,16 +1,17 @@
+from config import *
+
 class HumanPlayer:
     def __init__(self, name, game_state):
         self.name = name
         self.game_state = game_state
         
-        # Starting resources as specified
-        self.free_land = 500
-        self.worked_land = 200
-        self.peasants = 2000
-        self.soldiers = 200
-        self.revenue = 2000  # 1 per peasant
-        self.expenses = 600  # 3 per soldier
-        self.net_profit = 1400
+        # Starting resources from config
+        self.land = STARTING_LAND
+        self.peasants = STARTING_PEASANTS
+        self.soldiers = STARTING_SOLDIERS
+        self.revenue = STARTING_PEASANTS * REVENUE_PER_PEASANT
+        self.expenses = STARTING_SOLDIERS * EXPENSE_PER_SOLDIER
+        self.net_profit = self.revenue - self.expenses
         
         # Message tracking
         self.messages_sent_this_turn = set()
@@ -18,35 +19,30 @@ class HumanPlayer:
     
     def get_total_power(self):
         """Calculate total power for relative comparisons"""
-        return (self.peasants + self.soldiers * 2) * (self.free_land + self.worked_land) / 1000
+        return (self.peasants + self.soldiers * 2) * self.land / 1000
     
     def update_economy(self):
         """Update economic calculations"""
-        # Peasants grow naturally (10% growth rate, but limited by available land)
-        max_peasants = (self.free_land + self.worked_land) * 10
-        growth_rate = 0.1 if self.peasants < max_peasants else 0.05
+        # Peasants grow naturally (growth rate from config, limited by available land)
+        max_peasants = self.land * PEASANTS_PER_ACRE
+        growth_rate = PEASANT_GROWTH_RATE if self.peasants < max_peasants else PEASANT_GROWTH_RATE_CAPPED
         new_peasants = int(self.peasants * growth_rate)
         
-        # Peasants can only grow if there's free land
-        if self.free_land > 0:
+        # Peasants can grow if there's land
+        if self.land > 0:
             self.peasants += new_peasants
         
-        # Update worked land (10 peasants per acre)
-        needed_worked_land = self.peasants // 10
-        if needed_worked_land > self.worked_land:
-            # Convert free land to worked land
-            land_to_convert = min(needed_worked_land - self.worked_land, self.free_land)
-            self.free_land -= land_to_convert
-            self.worked_land += land_to_convert
+        # Calculate revenue based on peasants per acre efficiency
+        peasants_per_acre = self.peasants / self.land if self.land > 0 else 0
         
-        # Update revenue and expenses
-        self.revenue = self.peasants  # 1 per peasant
-        self.expenses = self.soldiers * 3  # 3 per soldier
+        # Update revenue and expenses using config values
+        self.revenue = int(self.peasants * REVENUE_PER_PEASANT * (peasants_per_acre / REVENUE_EFFICIENCY_SCALE))
+        self.expenses = self.soldiers * EXPENSE_PER_SOLDIER
         self.net_profit = self.revenue - self.expenses
     
     def can_recruit_soldiers(self, amount):
         """Check if player can recruit specified number of soldiers"""
-        return self.peasants >= amount and self.net_profit >= amount * 3
+        return self.peasants >= amount and self.net_profit >= amount * EXPENSE_PER_SOLDIER
     
     def recruit_soldiers(self, amount):
         """Recruit soldiers from peasants"""
@@ -106,6 +102,40 @@ class HumanPlayer:
             })
             return True
         return False
+    
+    def send_tribute(self, recipient_name, land_amount, peasant_amount):
+        """Send tribute (land or peasants) to another entity"""
+        target = self.game_state.get_entity_by_name(recipient_name)
+        if not target:
+            return False
+        
+        if land_amount < 0 or peasant_amount < 0:
+            return False
+        
+        if land_amount == 0 and peasant_amount == 0:
+            return False
+        
+        # Check if we have enough resources
+        if land_amount > self.land:
+            return False
+        
+        if peasant_amount > self.peasants:
+            return False
+        
+        # Transfer resources
+        if land_amount > 0:
+            self.land -= land_amount
+            target.land += land_amount
+        
+        if peasant_amount > 0:
+            self.peasants -= peasant_amount
+            target.peasants += peasant_amount
+        
+        # Send a message about the tribute
+        tribute_message = f"Tribute sent: {land_amount} land, {peasant_amount} peasants"
+        self.send_message(recipient_name, tribute_message)
+        
+        return True
     
     def receive_message(self, message_data):
         """Receive a message from another entity"""

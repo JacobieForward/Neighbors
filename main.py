@@ -7,6 +7,7 @@ from llm_neighbor import LLMNeighbor
 from renderer import Renderer
 from actions import ActionHandler
 from dotenv import load_dotenv
+from config import *
 
 def main():
     # Initialize game state
@@ -19,8 +20,8 @@ def main():
     neighbors = []
     neighbor_names = ["Northern Realm", "Eastern Empire", "Southern Dominion"]
     
-    # Create LLM Neighbors
-    for i, name in enumerate(neighbor_names[:3]):
+    # Create LLM Neighbors (limited by config)
+    for i, name in enumerate(neighbor_names[:MAX_NEIGHBORS]):
         llm_neighbor = LLMNeighbor(name, game_state, player_id=i+1)
         neighbors.append(llm_neighbor)
     
@@ -52,12 +53,6 @@ def main():
         
         for entity in all_entities:
             if entity == player:
-                # Human player turn - display game state without action result on first turn
-                if turn == 1 and not hasattr(renderer, '_first_turn_displayed'):
-                    renderer.display_game_state(game_state, player, show_action_result=False)
-                    renderer._first_turn_displayed = True
-                else:
-                    renderer.display_game_state(game_state, player, show_action_result=True)
                 action_handler.handle_player_actions(player)
             else:
                 # AI neighbor turn
@@ -70,15 +65,12 @@ def main():
         # Update economy
         game_state.update_economy()
         
-        # Process messages
-        game_state.process_messages()
-        
         # Check win conditions
         if game_state.check_victory_conditions():
             break
             
         turn += 1
-        time.sleep(1)  # Brief pause between turns
+        time.sleep(TURN_DELAY)  # Pause between turns from config
     
     # Game over
     renderer.display_final_results(game_state)

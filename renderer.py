@@ -1,4 +1,5 @@
 import os
+from config import *
 
 class Renderer:
     def __init__(self):
@@ -44,8 +45,9 @@ class Renderer:
             print("-" * 60)
         
         # Display player's resources
+        worked_land = player.peasants // PEASANTS_PER_ACRE if PEASANTS_PER_ACRE > 0 else 0
         print(f"\n{player.name} - Your Kingdom:")
-        print(f"Land: {player.free_land} free, {player.worked_land} worked")
+        print(f"Land: {player.land} | Worked Land: {worked_land}")
         print(f"Population: {player.peasants} peasants, {player.soldiers} soldiers")
         print(f"Economy: {player.revenue} revenue, {player.expenses} expenses")
         print(f"Net: {player.net_profit} profit/loss")
@@ -97,8 +99,9 @@ class Renderer:
         print("5. Invest")
         print("6. Attack Neighbor")
         print("7. Send Diplomat")
-        print("8. End Turn")
-        print("9. View Detailed Status")
+        print("8. Send Tribute")
+        print("9. End Turn")
+        print("10. View Detailed Status")
     
     def display_final_results(self, game_state):
         """Display final game results"""
@@ -114,7 +117,7 @@ class Renderer:
         print("\nFinal Rankings:")
         for i, entity in enumerate(all_entities, 1):
             power = entity.get_total_power()
-            land = entity.free_land + entity.worked_land
+            land = entity.land
             print(f"{i}. {entity.name}: {power:.1f} power, {land} acres")
         
         if all_entities[0] == game_state.player:

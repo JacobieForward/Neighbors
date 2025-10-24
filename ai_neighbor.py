@@ -1,5 +1,6 @@
 #Deprecated in favor of llm_neighbor.py. This is a "dumb" AI.
 import random
+from config import *
 
 class AINeighbor:
     def __init__(self, name, game_state, player_id):
@@ -7,14 +8,13 @@ class AINeighbor:
         self.game_state = game_state
         self.player_id = player_id
         
-        # Starting resources (same as player)
-        self.free_land = 500
-        self.worked_land = 200
-        self.peasants = 2000
-        self.soldiers = 200
-        self.revenue = 2000
-        self.expenses = 600
-        self.net_profit = 1400
+        # Starting resources from config
+        self.land = STARTING_LAND
+        self.peasants = STARTING_PEASANTS
+        self.soldiers = STARTING_SOLDIERS
+        self.revenue = STARTING_PEASANTS * REVENUE_PER_PEASANT
+        self.expenses = STARTING_SOLDIERS * EXPENSE_PER_SOLDIER
+        self.net_profit = self.revenue - self.expenses
         
         # AI personality traits
         self.personality = self.generate_personality()
@@ -41,28 +41,24 @@ class AINeighbor:
     
     def get_total_power(self):
         """Calculate total power for relative comparisons"""
-        return (self.peasants + self.soldiers * 2) * (self.free_land + self.worked_land) / 1000
+        return (self.peasants + self.soldiers * 2) * self.land / 1000
     
     def update_economy(self):
         """Update economic calculations (same as player)"""
-        # Peasants grow naturally
-        max_peasants = (self.free_land + self.worked_land) * 10
-        growth_rate = 0.1 if self.peasants < max_peasants else 0.05
+        # Peasants grow naturally using config values
+        max_peasants = self.land * PEASANTS_PER_ACRE
+        growth_rate = PEASANT_GROWTH_RATE if self.peasants < max_peasants else PEASANT_GROWTH_RATE_CAPPED
         new_peasants = int(self.peasants * growth_rate)
         
-        if self.free_land > 0:
+        if self.land > 0:
             self.peasants += new_peasants
         
-        # Update worked land
-        needed_worked_land = self.peasants // 10
-        if needed_worked_land > self.worked_land:
-            land_to_convert = min(needed_worked_land - self.worked_land, self.free_land)
-            self.free_land -= land_to_convert
-            self.worked_land += land_to_convert
+        # Calculate revenue based on peasants per acre efficiency
+        peasants_per_acre = self.peasants / self.land if self.land > 0 else 0
         
-        # Update revenue and expenses
-        self.revenue = self.peasants
-        self.expenses = self.soldiers * 3
+        # Update revenue and expenses using config values
+        self.revenue = int(self.peasants * REVENUE_PER_PEASANT * (peasants_per_acre / REVENUE_EFFICIENCY_SCALE))
+        self.expenses = self.soldiers * EXPENSE_PER_SOLDIER
         self.net_profit = self.revenue - self.expenses
     
     def take_turn(self):
@@ -148,7 +144,7 @@ class AINeighbor:
     
     def can_recruit_soldiers(self, amount):
         """Check if AI can recruit specified number of soldiers"""
-        return self.peasants >= amount and self.net_profit >= amount * 3
+        return self.peasants >= amount and self.net_profit >= amount * EXPENSE_PER_SOLDIER
     
     def recruit_soldiers(self, amount):
         """Recruit soldiers from peasants"""
@@ -196,7 +192,7 @@ class AINeighbor:
     def attack_target(self, target_name):
         """Attack a target entity"""
         target = self.game_state.get_entity_by_name(target_name)
-        if target and self.soldiers > 50:
+        if target and self.soldiers > MIN_ATTACK_FORCE:
             # Use 50-80% of soldiers for attack
             attack_force = int(self.soldiers * random.uniform(0.5, 0.8))
             

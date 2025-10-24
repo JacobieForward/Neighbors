@@ -1,3 +1,5 @@
+from config import *
+
 class ActionHandler:
     def __init__(self, game_state):
         self.game_state = game_state
@@ -32,8 +34,10 @@ class ActionHandler:
                 elif choice == "7":
                     self.handle_send_diplomat(player)
                 elif choice == "8":
-                    break  # End turn
+                    self.handle_send_tribute(player)
                 elif choice == "9":
+                    break  # End turn
+                elif choice == "10":
                     self.display_detailed_status(player)
                 else:
                     print("Invalid choice. Please try again.")
@@ -126,8 +130,8 @@ class ActionHandler:
     
     def handle_attack(self, player):
         """Handle attacking a neighbor"""
-        if player.soldiers < 50:
-            result = "You need at least 50 soldiers to launch an attack!"
+        if player.soldiers < MIN_ATTACK_FORCE:
+            result = f"You need at least {MIN_ATTACK_FORCE} soldiers to launch an attack!"
             self.renderer.set_last_action_result(result)
             return
         
@@ -145,14 +149,14 @@ class ActionHandler:
                 print(f"{target.name} has {target.soldiers} soldiers.")
                 
                 max_attack = min(player.soldiers, int(player.soldiers * 0.8))  # Max 80% of army
-                min_attack = 50  # Minimum attack force
+                min_attack = MIN_ATTACK_FORCE
                 
                 attack_force = int(input(f"How many soldiers to attack with? ({min_attack}-{max_attack}): "))
                 
                 if min_attack <= attack_force <= max_attack:
                     if player.attack_target(target.name, attack_force):
-                        # Immediately resolve the combat and show results
-                        result = self._resolve_player_attack(player, target, attack_force)
+                        # Queue the attack to be resolved with others
+                        result = f"Attack queued! You will attack {target.name} with {attack_force} soldiers at the end of the turn."
                         self.renderer.set_last_action_result(result)
                     else:
                         result = "Failed to launch attack."
@@ -167,69 +171,64 @@ class ActionHandler:
             result = "Please enter a valid number."
             self.renderer.set_last_action_result(result)
     
-    def _resolve_player_attack(self, attacker, defender, attack_force):
-        """Resolve a player's attack immediately and return detailed results"""
-        import random
-        
-        # Simple combat resolution (same logic as in game_state.py)
-        defender_soldiers = defender.soldiers
-        
-        # Attacker needs advantage to win
-        attack_power = attack_force * 0.8  # Attacker penalty
-        defense_power = defender_soldiers * 1.2  # Defender bonus
-        
-        total_power = attack_power + defense_power
-        attacker_win_chance = attack_power / total_power if total_power > 0 else 0.5
-        
-        if random.random() < attacker_win_chance:
-            # Attacker wins - calculate gains and losses
-            land_gained = min(50, defender.free_land + defender.worked_land // 4)
-            peasants_gained = min(200, defender.peasants // 4)
-            
-            # Transfer resources
-            defender.free_land = max(0, defender.free_land - land_gained)
-            defender.worked_land = max(0, defender.worked_land - land_gained)
-            defender.peasants = max(0, defender.peasants - peasants_gained)
-            
-            attacker.free_land += land_gained
-            attacker.peasants += peasants_gained
-            
-            # Both sides lose soldiers
-            attacker_losses = attack_force // 3
-            defender_losses = defender_soldiers // 2
-            
-            attacker.soldiers = max(0, attacker.soldiers - attacker_losses)
-            defender.soldiers = max(0, defender.soldiers - defender_losses)
-            
-            # Return detailed victory result
-            return f"VICTORY! You defeated {defender.name}!\n" \
-                   f"• Gained: {land_gained} acres, {peasants_gained} peasants\n" \
-                   f"• Your losses: {attacker_losses} soldiers\n" \
-                   f"• Enemy losses: {defender_losses} soldiers"
-        else:
-            # Defender wins - calculate losses
-            attacker_losses = attack_force // 2
-            defender_losses = defender_soldiers // 4
-            
-            attacker.soldiers = max(0, attacker.soldiers - attacker_losses)
-            defender.soldiers = max(0, defender.soldiers - defender_losses)
-            
-            # Return detailed defeat result
-            return f"DEFEAT! {defender.name} repelled your attack!\n" \
-                   f"• Your losses: {attacker_losses} soldiers\n" \
-                   f"• Enemy losses: {defender_losses} soldiers"
     
     def handle_send_diplomat(self, player):
         """Handle sending a diplomat (simplified for now)"""
         result = "Diplomatic system not yet implemented. Use 'Send Message' for now to communicate with neighbors."
         self.renderer.set_last_action_result(result)
     
+    def handle_send_tribute(self, player):
+        """Handle sending tribute to a neighbor"""
+        print("\nAvailable recipients:")
+        for i, neighbor in enumerate(self.game_state.neighbors, 1):
+            print(f"{i}. {neighbor.name}")
+        
+        try:
+            choice = int(input("Choose recipient (1-3): ")) - 1
+            if 0 <= choice < len(self.game_state.neighbors):
+                recipient = self.game_state.neighbors[choice]
+                
+                print(f"\nYour resources: {player.land} land, {player.peasants} peasants")
+                print(f"{recipient.name}'s resources: {recipient.land} land, {recipient.peasants} peasants")
+                
+                # Get land amount
+                land_amount = int(input(f"How much land to send? (0-{player.land}): "))
+                if land_amount < 0 or land_amount > player.land:
+                    result = "Invalid land amount."
+                    self.renderer.set_last_action_result(result)
+                    return
+                
+                # Get peasant amount
+                peasant_amount = int(input(f"How many peasants to send? (0-{player.peasants}): "))
+                if peasant_amount < 0 or peasant_amount > player.peasants:
+                    result = "Invalid peasant amount."
+                    self.renderer.set_last_action_result(result)
+                    return
+                
+                # Check if at least something is being sent
+                if land_amount == 0 and peasant_amount == 0:
+                    result = "Must send at least some land or peasants."
+                    self.renderer.set_last_action_result(result)
+                    return
+                
+                # Send tribute
+                if player.send_tribute(recipient.name, land_amount, peasant_amount):
+                    result = f"Tribute sent to {recipient.name}: {land_amount} land, {peasant_amount} peasants"
+                    self.renderer.set_last_action_result(result)
+                else:
+                    result = "Failed to send tribute."
+                    self.renderer.set_last_action_result(result)
+            else:
+                result = "Invalid choice."
+                self.renderer.set_last_action_result(result)
+        except ValueError:
+            result = "Please enter valid numbers."
+            self.renderer.set_last_action_result(result)
+    
     def display_detailed_status(self, player):
         """Display detailed status information"""
         print(f"\nDetailed Status for {player.name}:")
-        print(f"Free Land: {player.free_land}")
-        print(f"Worked Land: {player.worked_land}")
-        print(f"Total Land: {player.free_land + player.worked_land}")
+        print(f"Land: {player.land}")
         print(f"Peasants: {player.peasants}")
         print(f"Soldiers: {player.soldiers}")
         print(f"Revenue: {player.revenue}")

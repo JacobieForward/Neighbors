@@ -6,7 +6,13 @@ from langchain_community.chat_models.llamacpp import ChatLlamaCpp
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-import os
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_ollama import ChatOllama
+from langgraph.graph import MessagesState
+from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
+from config import *
 
 class LLMNeighbor:
     def __init__(self, name, game_state, player_id):
@@ -14,39 +20,36 @@ class LLMNeighbor:
         self.game_state = game_state
         self.player_id = player_id
 
-        self.system_prompt = """You are a ruler in a diplomatic strategy game. You must always act in your own long-term self-interest.
-        DO NOT REPEAT YOURSELF. DO NOT SAY THE SAME THING TWICE. Quickly and concisely respond with your actions."""
+        # Initialize LLM and tools
+        self.llm = ChatOllama(
+            base_url="http://localhost:11434",
+            model="gpt-oss:20b",
+            temperature=0.5,
+            top_p=0.5,
+            top_k=20,
+            repeat_penalty=1.1,
+            repeat_last_n=64,
+            num_ctx=24000,
+            num_predict=1536,
+            seed=4223546,
+            keep_alive="7m",
+            num_thread=8
+        )
 
-        # Your current goals are: {goals}
-        self.prompt_template = """You are {name}, a ruler in a diplomatic strategy game.
-        Your personality traits are: {personality}
-        
-        Your current status is: {status}
+        self.prompt_template = """Your name is {name}. Your personality traits are: {personality}. Your current status is: {status}. The game state is: {game_state}.
 
-        You can use the following tools to take actions: 
-        - recruit_soldiers: Recruit soldiers from peasants
-        - dismiss_soldiers: Dismiss soldiers back to peasants
-        - send_message: Send a diplomatic message to another entity and decide what to say in the message.
-        - attack_target: Attack another entity
-
-        Based on your personality and current situation, decide what actions to take this turn.
-        You can take multiple actions if appropriate. Be strategic and roleplay according to your personality.
-
-        Current game state: {game_state}
-
-        Look at the game state, then look at your personality and goals. Finally, look at your tools once and take an action. If you take an action
-        look at your tools again and decide whether or not to take another action. Repeat this process until you do not want to take an any more actions with the tools.
+        Events since your last turn:
+        {turn_summary}
 
         {agent_scratchpad}"""
         
-        # Starting resources (same as player)
-        self.free_land = 500
-        self.worked_land = 200
-        self.peasants = 2000
-        self.soldiers = 200
-        self.revenue = 2000
-        self.expenses = 600
-        self.net_profit = 1400
+        # Starting resources from config
+        self.land = STARTING_LAND
+        self.peasants = STARTING_PEASANTS
+        self.soldiers = STARTING_SOLDIERS
+        self.revenue = STARTING_PEASANTS * REVENUE_PER_PEASANT
+        self.expenses = STARTING_SOLDIERS * EXPENSE_PER_SOLDIER
+        self.net_profit = self.revenue - self.expenses
         
         # AI personality traits
         self.personality = self.generate_personality()
@@ -58,134 +61,164 @@ class LLMNeighbor:
         # AI state
         self.current_goals = []
         self.trust_levels = {}  # Trust in other entities
-        
-        # Initialize LLM and tools
-        self._setup_llm()
-    
-    def _setup_llm(self):
-        """Setup the LLM pipeline"""
-        # Define the Tools that the LLM can use as StructuredTools for LangChain
-        self.tools = [
-            StructuredTool.from_function(
-                func=self.recruit_soldiers,
-                name="recruit_soldiers",
-                description="Recruit soldiers from peasants. Requires peasants and net profit."
-            ),
-            StructuredTool.from_function(
-                func=self.dismiss_soldiers,
-                name="dismiss_soldiers", 
-                description="Dismiss soldiers back to peasants."
-            ),
-            StructuredTool.from_function(
-                func=self.send_message,
-                name="send_message",
-                description="Send a diplomatic message to another entity."
-            ),
-            StructuredTool.from_function(
-                func=self.attack_target,
-                name="attack_target",
-                description="Attack another entity with your soldiers."
-            )
-        ]
+        self.checkpointer = InMemorySaver()
 
-        """self.pre_tool_llm = ChatLlamaCpp(
-            #model_path="./models/Qwen3-4B-Function-Calling-Pro.gguf", 
-            #model_path="./models/Qwen3-1.7B-Q8_0.gguf",
-            model_path="./models/Qwen3-4B-Instruct-2507-UD-IQ1_S.gguf",
-            temperature=0.2, 
-            n_ctx=4000, 
-            #top_p=0.95, 
-            max_tokens=4000, 
-            n_gpu_layers=-1,
-            #context_length=16384, 
-            verbose=False,
-            #device_map="auto"
-        )"""
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise Exception("No OPENAI_API_KEY found in environment variables")
-
-        self.pre_tool_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5, max_tokens=3000, max_retries=3)
-
-        # Create the prompt template for the agent
-        prompt = ChatPromptTemplate.from_template(self.prompt_template)
-
-        self.llm = create_tool_calling_agent(self.pre_tool_llm, self.tools, prompt)
-
-        self.llm_agent_executor = AgentExecutor(agent=self.llm, tools=self.tools, verbose=True, handle_parsing_errors=True)
-    
-    def generate_personality(self):
-        """Generate random personality traits for this AI"""
-        traits = {
-            'aggression': random.uniform(0.1, 0.9),  # How likely to attack
-            'diplomacy': random.uniform(0.1, 0.9),   # How likely to negotiate
-            'greed': random.uniform(0.1, 0.9),       # How much they value resources
-            'honor': random.uniform(0.1, 0.9),       # How likely to keep promises
-            'paranoia': random.uniform(0.1, 0.9),    # How suspicious of others
-            'ambition': random.uniform(0.1, 0.9)     # How expansionist
-        }
-        return traits
-    
-    def get_total_power(self):
-        """Calculate total power for relative comparisons"""
-        return (self.peasants + self.soldiers * 2) * (self.free_land + self.worked_land) / 1000
-    
-    def update_economy(self):
-        """Update economic calculations (same as player)"""
-        # Peasants grow naturally
-        max_peasants = (self.free_land + self.worked_land) * 10
-        growth_rate = 0.1 if self.peasants < max_peasants else 0.05
-        new_peasants = int(self.peasants * growth_rate)
-        
-        if self.free_land > 0:
-            self.peasants += new_peasants
-        
-        # Update worked land
-        needed_worked_land = self.peasants // 10
-        if needed_worked_land > self.worked_land:
-            land_to_convert = min(needed_worked_land - self.worked_land, self.free_land)
-            self.free_land -= land_to_convert
-            self.worked_land += land_to_convert
-        
-        # Update revenue and expenses
-        self.revenue = self.peasants
-        self.expenses = self.soldiers * 3
-        self.net_profit = self.revenue - self.expenses
-    
+        self.graph = self.build_graph()
     def take_turn(self):
         """LLM agent takes its turn"""
-        # Analyze current situation
-        self.analyze_situation()
-        
+        print(f"""
+
+        --------------------------------------------
+        🤖🤖🤖 LLM {self.name} taking turn 🤖🤖🤖
+        --------------------------------------------
+
+        """)
         # Get current game state for the LLM
-        game_state_info = self._get_game_state_info()
+        gameStateInfo = self._get_game_state_info()
         
         try:
-            # Pass the input as a dictionary with the required variables
-            input_data = {
-                "name": self.name,
-                "personality": self.personality,
-                "status": self.get_status(),
-                "game_state": game_state_info,
-                "agent_scratchpad": ""  # This will be populated by the agent executor
-            }
-
-            result = self.llm_agent_executor.invoke(input_data)
-            print(f"{self.name} (LLM) response: {result}")
+            # Build message history text
+            message_history_text = ""
+            for msg in self.message_history[-15:]:  # Last 15 messages
+                if 'from' in msg:
+                    message_history_text += f"Message from {msg['from']}: {msg['content']}\n"
+                else:
+                    message_history_text += f"Message to {msg['to']}: {msg['content']}\n"
             
+            if not message_history_text:
+                message_history_text = "No recent messages."
+            
+            turn_summary = self.get_ai_turn_summary()
+
+            formatted_prompt = self.prompt_template.format(
+                name=self.name,
+                personality=self.personality,
+                status=self.get_status(),
+                game_state=gameStateInfo,
+                message_history=message_history_text,
+                turn_summary=turn_summary,  # Add this
+                agent_scratchpad=""
+            )
+		
+            result = self.graph.invoke({"messages": [HumanMessage(content=formatted_prompt)]}, config={"configurable":{"thread_id":self.player_id}})
+            print(formatted_prompt)
+            print(result["messages"][-1].content)
         except Exception as e:
             print(f"Error in LLM turn for {self.name}: {e}")
-            # Fallback to simple random actions if LLM fails
-            self._fallback_actions()
         
         # Reset turn tracking
         self.reset_turn()
+
+    def get_ai_turn_summary(self):
+        """Get a summary of all actions that happened to this AI since its last turn"""
+        summary_parts = []
+        
+        # Check for incoming attacks
+        incoming_attacks = []
+        for result in self.game_state.combat_results:
+            if f"defeated by {self.name}" in result.lower() or f"repelled {self.name}" in result.lower():
+                incoming_attacks.append(result)
+        
+        if incoming_attacks:
+            summary_parts.append("INCOMING ATTACKS:")
+            for attack in incoming_attacks:
+                summary_parts.append(f"  - {attack}")
+        
+        # Check for outgoing attacks (attacks this AI made)
+        outgoing_attacks = []
+        for result in self.game_state.combat_results:
+            if f"{self.name} defeats" in result or f"{self.name} repelled" in result:
+                outgoing_attacks.append(result)
+        
+        if outgoing_attacks:
+            summary_parts.append("YOUR ATTACKS:")
+            for attack in outgoing_attacks:
+                summary_parts.append(f"  - {attack}")
+        
+        # Check for messages received
+        recent_messages = [msg for msg in self.message_history if msg.get('from')]
+        if recent_messages:
+            summary_parts.append("MESSAGES RECEIVED:")
+            for msg in recent_messages[-3:]:  # Last 3 messages
+                summary_parts.append(f"  - From {msg['from']}: {msg['content']}")
+        
+        # Check for resource changes
+        resource_changes = []
+        if hasattr(self, '_previous_resources'):
+            land_change = self.land - self._previous_resources.get('land', 0)
+            peasant_change = self.peasants - self._previous_resources.get('peasants', 0)
+            soldier_change = self.soldiers - self._previous_resources.get('soldiers', 0)
+            
+            if land_change != 0:
+                resource_changes.append(f"Land: {land_change:+d}")
+            if peasant_change != 0:
+                resource_changes.append(f"Peasants: {peasant_change:+d}")
+            if soldier_change != 0:
+                resource_changes.append(f"Soldiers: {soldier_change:+d}")
+        
+        if resource_changes:
+            summary_parts.append("RESOURCE CHANGES:")
+            summary_parts.append(f"  - {', '.join(resource_changes)}")
+        
+        # Store current resources for next turn comparison
+        self._previous_resources = {
+            'land': self.land,
+            'peasants': self.peasants,
+            'soldiers': self.soldiers
+        }
+        
+        if not summary_parts:
+            return "No significant events since your last turn."
+        
+        return "\n".join(summary_parts)
+    
+    def generate_personality(self):
+        """Generate a personality description by asking AI to create a historical ruler"""
+        
+        prompt = """Create a brief personality description (2-3 sentences) for a historical ruler that could exist in a medieval/fantasy setting. 
+        Include their name, key traits, and ruling style. Make it unique and interesting for a diplomatic strategy game.
+        
+        Format: "[Ruler Name] - [2-3 sentence personality description]"
+        
+        Example: "King Aldric the Wise - A patient and calculating ruler known for his diplomatic skills and long-term planning. He prefers negotiation over warfare but is not afraid to use force when necessary. He values knowledge and often seeks counsel from scholars and advisors."
+        
+        Create a new, unique ruler:"""
+        
+        try:
+            response = self.llm.invoke(prompt)
+            return response.content.strip()
+        except Exception as e:
+            print(f"Error generating personality: {e}")
+            return "You only scream FAILURE"
+    
+    def get_total_power(self):
+        """Calculate total power for relative comparisons"""
+        return (self.peasants + self.soldiers * 2) * self.land / 1000
+    
+    def update_economy(self):
+        """Update economic calculations (same as player)"""
+        # Peasants grow naturally using config values
+        max_peasants = self.land * PEASANTS_PER_ACRE
+        growth_rate = PEASANT_GROWTH_RATE if self.peasants < max_peasants else PEASANT_GROWTH_RATE_CAPPED
+        new_peasants = int(self.peasants * growth_rate)
+        
+        if self.land > 0:
+            self.peasants += new_peasants
+        
+        # Calculate revenue based on peasants per acre efficiency
+        peasants_per_acre = self.peasants / self.land if self.land > 0 else 0
+        
+        # Update revenue and expenses using config values
+        self.revenue = int(self.peasants * REVENUE_PER_PEASANT * (peasants_per_acre / REVENUE_EFFICIENCY_SCALE))
+        self.expenses = self.soldiers * EXPENSE_PER_SOLDIER
+        self.net_profit = self.revenue - self.expenses
     
     def _get_game_state_info(self):
         """Get current game state information for the LLM"""
         all_entities = [self.game_state.player] + self.game_state.neighbors
         other_entities = [e for e in all_entities if e != self]
         
-        info = f"Your resources: {self.peasants} peasants, {self.soldiers} soldiers, {self.free_land + self.worked_land} land\n"
+        info = f"Your resources: {self.peasants} peasants, {self.soldiers} soldiers, {self.land} land\n"
         info += f"Your economy: {self.revenue} revenue, {self.expenses} expenses, {self.net_profit} net\n"
         
         for entity in other_entities:
@@ -194,45 +227,11 @@ class LLMNeighbor:
         
         return info
     
-    def _fallback_actions(self):
-        """Fallback actions if LLM fails"""
-        if self.net_profit < 0 and self.peasants >= 100:
-            self.extort_taxes()
-        elif self.peasants < 1500 and self.net_profit > 1000:
-            self.invest(500)
-        elif self.can_recruit_soldiers(50):
-            self.recruit_soldiers(50)
-    
-    def analyze_situation(self):
-        """Analyze current game situation and update goals"""
-        # Get relative power compared to other entities
-        all_entities = [self.game_state.player] + self.game_state.neighbors
-        other_entities = [e for e in all_entities if e != self]
-        
-        self.current_goals = []
-        
-        for entity in other_entities:
-            relative_power = self.game_state.get_relative_power(self, entity)
-            
-            if relative_power in ["Miniscule", "Inferior"]:
-                # We're weaker - consider alliance or building up
-                if self.personality['diplomacy'] > 0.6:
-                    self.current_goals.append(f"ally_with_{entity.name}")
-                else:
-                    self.current_goals.append("build_military")
-            
-            elif relative_power in ["Greater", "Overwhelming"]:
-                # We're stronger - consider expansion
-                if self.personality['aggression'] > 0.6:
-                    self.current_goals.append(f"attack_{entity.name}")
-                else:
-                    self.current_goals.append("consolidate_power")
-    
     # Tool functions that the LLM can call
     def get_status(self) -> str:
         """Get current status and resources"""
         return f"""Status for {self.name}:
-        Land: {self.free_land} free, {self.worked_land} worked
+        Land: {self.land}
         Population: {self.peasants} peasants, {self.soldiers} soldiers
         Economy: {self.revenue} revenue, {self.expenses} expenses, {self.net_profit} net profit
         Total Power: {self.get_total_power():.1f}"""
@@ -243,7 +242,7 @@ class LLMNeighbor:
         if entity:
             relative_power = self.game_state.get_relative_power(self, entity)
             return f"""{entity_name}:
-            Land: {entity.free_land} free, {entity.worked_land} worked
+            Land: {entity.land}
             Population: {entity.peasants} peasants, {entity.soldiers} soldiers
             Economy: {entity.revenue} revenue, {entity.expenses} expenses
             Relative Power: {relative_power}"""
@@ -318,9 +317,43 @@ class LLMNeighbor:
         
         return f"Attacking {target_name} with {attack_force} soldiers!"
     
+    def send_tribute(self, recipient_name: str, land_amount: int = 0, peasant_amount: int = 0) -> str:
+        """Send tribute (land or peasants) to another player"""
+        target = self.game_state.get_entity_by_name(recipient_name)
+        if not target:
+            return f"Target {recipient_name} not found."
+        
+        if land_amount < 0 or peasant_amount < 0:
+            return "Cannot send negative amounts."
+        
+        if land_amount == 0 and peasant_amount == 0:
+            return "Must send at least some land or peasants."
+        
+        # Check if we have enough resources
+        if land_amount > self.land:
+            return f"Cannot send {land_amount} land. Only have {self.land}."
+        
+        if peasant_amount > self.peasants:
+            return f"Cannot send {peasant_amount} peasants. Only have {self.peasants}."
+        
+        # Transfer resources
+        if land_amount > 0:
+            self.land -= land_amount
+            target.land += land_amount
+        
+        if peasant_amount > 0:
+            self.peasants -= peasant_amount
+            target.peasants += peasant_amount
+        
+        # Send a message about the tribute
+        tribute_message = f"Tribute sent: {land_amount} land, {peasant_amount} peasants"
+        self.send_message(recipient_name, tribute_message)
+        
+        return f"Sent tribute to {recipient_name}: {land_amount} land, {peasant_amount} peasants"
+    
     def can_recruit_soldiers(self, amount):
         """Check if AI can recruit specified number of soldiers"""
-        return self.peasants >= amount and self.net_profit >= amount * 3
+        return self.peasants >= amount and self.net_profit >= amount * EXPENSE_PER_SOLDIER
     
     def receive_message(self, message_data):
         """Receive a message from another entity"""
@@ -350,3 +383,152 @@ class LLMNeighbor:
                     except Exception as e:
                         print(f"{self.name}: Error executing {tool_name}: {e}")
                     break
+    
+    def build_graph(self):
+        # Define tools as instance methods
+        tools = [
+            StructuredTool.from_function(
+                func=self.recruit_soldiers,
+                name="recruit_soldiers",
+                description="Recruit soldiers from peasants. Reduces peasants and increases soldiers. Since there are fewer peasants you will make less taxes and pay upkeep on soldiers."
+            ),
+            StructuredTool.from_function(
+                func=self.dismiss_soldiers,
+                name="dismiss_soldiers", 
+                description="Dismiss soldiers back to peasants. Peasants can't fight, but they make money for you. This will increase your peasants and decrease your soldiers."
+            ),
+            StructuredTool.from_function(
+                func=self.send_message,
+                name="send_message",
+                description="Send a diplomatic message to another entity and decide what to say in the message. They will see the message in their inbox on their next turn."
+            ),
+            StructuredTool.from_function(
+                func=self.attack_target,
+                name="attack_target",
+                description="Attack another entity with your soldiers. It is easier to defend than to attack, but if you attack somebody successfully you take some of their land."
+            ),
+            StructuredTool.from_function(
+                func=self.send_tribute,
+                name="send_tribute",
+                description="Send tribute (land or peasants) to another entity. This can be used for diplomacy, trade, alliances, or to avoid conflict."
+            )
+        ]
+        # load the system prompt from the file
+        with open("system_prompt.txt", "r", encoding="utf-8") as f:
+            system_prompt = f.read()
+
+        # System message
+        sys_msg = SystemMessage(content=system_prompt)
+
+        self.llm = self.llm.bind_tools(tools)
+
+        graph = StateGraph(MessagesState)
+
+        # Node 1: The agent with logging
+        def agent_node(state: MessagesState):
+            print(f"\n🤖 AGENT NODE - Processing message for {self.name}...")
+            messages = state["messages"]
+            print(f"📝 Input messages count: {len(messages)}")
+            
+            try:
+                # Add system message at the beginning
+                messages_with_system = [sys_msg] + messages
+                
+                response = self.llm.invoke(messages_with_system)
+                print(f"✅ Agent response generated successfully")
+                print(f"📤 Response type: {type(response)}")
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    print(f"🔧 Tool calls requested: {len(response.tool_calls)}")
+                    for i, tool_call in enumerate(response.tool_calls):
+                        print(f"   Tool {i+1}: {tool_call['name']} with args: {tool_call['args']}")
+                else:
+                    print("💬 No tool calls - direct response")
+                
+                return {"messages": [response]}
+            except Exception as e:
+                print(f"❌ Error in agent node: {e}")
+                raise
+
+        # Node 2: The tools with detailed logging
+        def tool_node_with_logging(state: MessagesState):
+            print(f"\n🔧 TOOL NODE - Executing tools...")
+            messages = state["messages"]
+            
+            # Find the last message with tool calls
+            last_message = messages[-1]
+            if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
+                print("⚠️ No tool calls found in last message")
+                return {"messages": []}
+            
+            print(f"🎯 Found {len(last_message.tool_calls)} tool calls to execute")
+            
+            tool_results = []
+            for i, tool_call in enumerate(last_message.tool_calls):
+                tool_name = tool_call['name']
+                tool_args = tool_call['args']
+                tool_id = tool_call['id']
+                
+                print(f"\n🔨 Executing Tool {i+1}/{len(last_message.tool_calls)}:")
+                print(f"   Name: {tool_name}")
+                print(f"   Args: {tool_args}")
+                print(f"   ID: {tool_id}")
+                
+                try:
+                    # Find the tool function
+                    tool_func = None
+                    for tool in tools:
+                        if tool.name == tool_name:
+                            tool_func = tool
+                            break
+                    
+                    if not tool_func:
+                        error_msg = f"Tool '{tool_name}' not found"
+                        print(f"❌ {error_msg}")
+                        tool_results.append(ToolMessage(
+                            content=error_msg,
+                            tool_call_id=tool_id
+                        ))
+                        continue
+                    
+                    # Execute the tool
+                    print(f"⚡ Executing {tool_name}...")
+                    result = tool_func.invoke(tool_args)
+                    print(f"✅ Tool {tool_name} executed successfully")
+                    print(f"📊 Result type: {type(result)}")
+                    print(f"📄 Result preview: {str(result)[:3000]}{'...' if len(str(result)) > 200 else ''}")
+                    
+                    tool_results.append(ToolMessage(
+                        content=str(result),
+                        tool_call_id=tool_id
+                    ))
+                    
+                except Exception as e:
+                    error_msg = f"Error executing {tool_name}: {str(e)}"
+                    print(f"❌ {error_msg}")
+                    tool_results.append(ToolMessage(
+                        content=error_msg,
+                        tool_call_id=tool_id
+                    ))
+                    #TODO: Rerun here with an appended instruction to check for typos or errors (if failed tool calls keep happening) Bascally we will find out if AI is capable of self correcting
+            
+            print(f"🏁 Tool execution completed. {len(tool_results)} results generated")
+            return {"messages": tool_results}
+
+        # --- Graph wiring ---
+        graph.add_node("agent", agent_node)
+        graph.add_node("tools", tool_node_with_logging)
+
+        # start -> agent
+        graph.add_edge(START, "agent")
+
+        # if model calls a tool, go to tools node; else, end
+        graph.add_conditional_edges(
+            "agent",
+            tools_condition,
+            {"tools": "tools", "__end__": END}
+        )
+
+        # after running tools, go back to agent
+        graph.add_edge("tools", "agent")
+
+        return graph.compile(checkpointer=self.checkpointer)
