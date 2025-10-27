@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_ollama import ChatOllama
+#from langchain_ollama import ChatOllama
 from langgraph.graph import MessagesState
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -16,6 +16,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from config import *
+import os
 
 class LLMNeighbor:
     def __init__(self, name, game_state, player_id):
@@ -24,19 +25,32 @@ class LLMNeighbor:
         self.player_id = player_id
 
         # Initialize LLM and tools
-        self.llm = ChatOllama(
-            base_url="http://localhost:11434",
-            model="gpt-oss:20b",
-            temperature=0.6,
+        #self.llm = ChatOllama(
+        #    base_url="http://localhost:11434",
+        #    model="gpt-oss:20b",
+        #    temperature=0.6,
+        #    top_p=0.8,
+        #    top_k=50,
+        #    repeat_penalty=1.1,
+        #    repeat_last_n=64,
+        #    num_ctx=24000,
+        #    num_predict=1536,
+        #    keep_alive="7m",
+        #    num_thread=8
+        #)
+        # Initialize OpenAI LLM
+        self.llm = ChatOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            model="gpt-4o-mini",
+            temperature=0.5,
             top_p=0.8,
             top_k=50,
             repeat_penalty=1.1,
             repeat_last_n=64,
             num_ctx=24000,
             num_predict=1536,
-            #seed=4223546,
             keep_alive="7m",
-            num_thread=8
+            num_thread=8,
         )
 
         self.prompt_template = """Your name is {name}. You are: {personality}. Your current status is: {status}. The game state is: {game_state_info}.
@@ -300,22 +314,6 @@ class LLMNeighbor:
             return f"Dismissed {amount} soldiers. Now have {self.soldiers} soldiers and {self.peasants} peasants."
         return f"Cannot dismiss {amount} soldiers. Only have {self.soldiers} soldiers."
     
-    def extort_taxes(self) -> str:
-        """Extort high taxes (loses peasants but gains money)"""
-        if self.peasants >= 100:
-            self.peasants -= 100
-            money_gained = 500
-            return f"Extorted high taxes! Lost 100 peasants but gained {money_gained} money."
-        return "Not enough peasants to extort taxes. Need at least 100 peasants."
-    
-    def invest(self, amount: int) -> str:
-        """Invest money to gain peasants"""
-        if self.net_profit >= amount:
-            new_peasants = amount // 2
-            self.peasants += new_peasants
-            return f"Invested {amount}! Gained {new_peasants} peasants."
-        return f"Cannot invest {amount}. Need {amount} net profit."
-    
     def send_message(self, recipient_name: str, content: str) -> str:
         """Send a diplomatic message to another entity. This is FREE and has NO COST. Use this to negotiate, threaten, form alliances, gather information, or respond to other players. You can only message each entity once per turn, so make it count! Messages are your primary tool for diplomacy and can prevent wars or secure tribute."""
         if recipient_name not in self.messages_sent_this_turn:
@@ -568,7 +566,6 @@ class LLMNeighbor:
                         content=error_msg,
                         tool_call_id=tool_id
                     ))
-                    #TODO: Rerun here with an appended instruction to check for typos or errors (if failed tool calls keep happening) Bascally we will find out if AI is capable of self correcting
             
             print(f"🏁 Tool execution completed. {len(tool_results)} results generated")
             return {"messages": tool_results}

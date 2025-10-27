@@ -61,22 +61,6 @@ class HumanPlayer:
             return True
         return False
     
-    def extort_taxes(self):
-        """Extort high taxes - gain money but lose peasants"""
-        if self.peasants >= 100:
-            self.peasants -= 100
-            # Gain immediate money (simplified - in real game this would be more complex)
-            return 500
-        return 0
-    
-    def invest(self, amount):
-        """Invest money to gain peasants"""
-        if self.net_profit >= amount:
-            # Convert money to peasants (simplified)
-            new_peasants = amount // 2
-            self.peasants += new_peasants
-            return True
-        return False
     
     def attack_target(self, target_name, attack_force):
         """Attack a target entity"""

@@ -20,4 +20,3 @@ MIN_ATTACK_FORCE = 50
 # Game settings
 MAX_NEIGHBORS = 3
 TURN_DELAY = 1  # seconds between turns
-

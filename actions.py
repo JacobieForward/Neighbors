@@ -26,18 +26,12 @@ class ActionHandler:
                 elif choice == "3":
                     self.handle_dismiss_soldiers(player)
                 elif choice == "4":
-                    self.handle_extort_taxes(player)
-                elif choice == "5":
-                    self.handle_invest(player)
-                elif choice == "6":
                     self.handle_attack(player)
-                elif choice == "7":
-                    self.handle_send_diplomat(player)
-                elif choice == "8":
+                elif choice == "5":
                     self.handle_send_tribute(player)
-                elif choice == "9":
+                elif choice == "6":
                     break  # End turn
-                elif choice == "10":
+                elif choice == "7":
                     self.display_detailed_status(player)
                 else:
                     print("Invalid choice. Please try again.")
@@ -104,30 +98,6 @@ class ActionHandler:
             result = "Please enter a valid number."
             self.renderer.set_last_action_result(result, self.game_state.turn)
     
-    def handle_extort_taxes(self, player):
-        """Handle extorting taxes"""
-        if player.peasants >= 100:
-            money_gained = player.extort_taxes()
-            result = f"Extorted high taxes! Gained {money_gained} but lost 100 peasants."
-            self.renderer.set_last_action_result(result, self.game_state.turn)
-        else:
-            result = "Not enough peasants to extort taxes."
-            self.renderer.set_last_action_result(result, self.game_state.turn)
-    
-    def handle_invest(self, player):
-        """Handle investing"""
-        try:
-            amount = int(input("How much to invest? "))
-            if player.invest(amount):
-                result = f"Invested {amount}!"
-                self.renderer.set_last_action_result(result, self.game_state.turn)
-            else:
-                result = "Cannot invest that much. Check your finances."
-                self.renderer.set_last_action_result(result, self.game_state.turn)
-        except ValueError:
-            result = "Please enter a valid number."
-            self.renderer.set_last_action_result(result, self.game_state.turn)
-    
     def handle_attack(self, player):
         """Handle attacking a neighbor"""
         if player.soldiers < MIN_ATTACK_FORCE:
@@ -175,11 +145,6 @@ class ActionHandler:
             result = "Please enter a valid number."
             self.renderer.set_last_action_result(result, self.game_state.turn)
     
-    
-    def handle_send_diplomat(self, player):
-        """Handle sending a diplomat (simplified for now)"""
-        result = "Diplomatic system not yet implemented. Use 'Send Message' for now to communicate with neighbors."
-        self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_send_tribute(self, player):
         """Handle sending tribute to a neighbor"""

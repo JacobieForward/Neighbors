@@ -104,13 +104,10 @@ class Renderer:
         print("1. Send Message")
         print("2. Recruit Soldiers")
         print("3. Dismiss Soldiers")
-        print("4. Extort High Taxes")
-        print("5. Invest")
-        print("6. Attack Neighbor")
-        print("7. Send Diplomat")
-        print("8. Send Tribute")
-        print("9. End Turn")
-        print("10. View Detailed Status")
+        print("4. Attack Neighbor")
+        print("5. Send Tribute")
+        print("6. End Turn")
+        print("7. View Detailed Status")
     
     def display_final_results(self, game_state):
         """Display final game results"""
