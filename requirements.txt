@@ -3,5 +3,8 @@ langchain-community
 langchain
 langchain-openai
 langchain-ollama
+langchain-huggingface
 langgraph
+chromadb
+sentence-transformers
 dotenv

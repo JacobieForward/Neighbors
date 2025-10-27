@@ -9,13 +9,16 @@ class HumanPlayer:
         self.land = STARTING_LAND
         self.peasants = STARTING_PEASANTS
         self.soldiers = STARTING_SOLDIERS
-        self.revenue = STARTING_PEASANTS * REVENUE_PER_PEASANT
-        self.expenses = STARTING_SOLDIERS * EXPENSE_PER_SOLDIER
-        self.net_profit = self.revenue - self.expenses
+        self.food_production = STARTING_PEASANTS * FOOD_PER_PEASANT
+        self.food_consumption = STARTING_SOLDIERS * FOOD_PER_SOLDIER
+        self.net_food = self.food_production - self.food_consumption
         
         # Message tracking
         self.messages_sent_this_turn = set()
         self.message_history = []
+        
+        # Attack tracking
+        self.attacks_sent_this_turn = set()
     
     def get_total_power(self):
         """Calculate total power for relative comparisons"""
@@ -32,17 +35,15 @@ class HumanPlayer:
         if self.land > 0:
             self.peasants += new_peasants
         
-        # Calculate revenue based on peasants per acre efficiency
-        peasants_per_acre = self.peasants / self.land if self.land > 0 else 0
-        
-        # Update revenue and expenses using config values
-        self.revenue = int(self.peasants * REVENUE_PER_PEASANT * (peasants_per_acre / REVENUE_EFFICIENCY_SCALE))
-        self.expenses = self.soldiers * EXPENSE_PER_SOLDIER
-        self.net_profit = self.revenue - self.expenses
+        # Calculate food production and consumption
+        self.food_production = self.peasants * FOOD_PER_PEASANT
+        self.food_consumption = self.soldiers * FOOD_PER_SOLDIER
+        self.net_food = self.food_production - self.food_consumption
     
     def can_recruit_soldiers(self, amount):
         """Check if player can recruit specified number of soldiers"""
-        return self.peasants >= amount and self.net_profit >= amount * EXPENSE_PER_SOLDIER
+        # Can recruit if we have enough peasants and enough food to feed new soldiers
+        return self.peasants >= amount and self.net_food >= amount * FOOD_PER_SOLDIER
     
     def recruit_soldiers(self, amount):
         """Recruit soldiers from peasants"""
@@ -80,13 +81,22 @@ class HumanPlayer:
     def attack_target(self, target_name, attack_force):
         """Attack a target entity"""
         target = self.game_state.get_entity_by_name(target_name)
-        if target and self.soldiers >= attack_force and attack_force > 0:
+        if not target:
+            return False
+            
+        # Check if already attacked this target this turn
+        if target_name in self.attacks_sent_this_turn:
+            return False
+            
+        if self.soldiers >= attack_force and attack_force > 0:
             # Queue combat
             self.game_state.combat_queue.append({
                 'attacker': self,
                 'defender': target,
                 'attacker_soldiers': attack_force
             })
+            # Track this attack
+            self.attacks_sent_this_turn.add(target_name)
             return True
         return False
     
@@ -131,9 +141,14 @@ class HumanPlayer:
             self.peasants -= peasant_amount
             target.peasants += peasant_amount
         
-        # Send a message about the tribute
+        # Send a message about the tribute (don't count as a regular message)
         tribute_message = f"Tribute sent: {land_amount} land, {peasant_amount} peasants"
-        self.send_message(recipient_name, tribute_message)
+        self.game_state.send_message(self, recipient_name, tribute_message)
+        self.message_history.append({
+            'to': recipient_name,
+            'content': tribute_message,
+            'turn': self.game_state.turn
+        })
         
         return True
     
@@ -148,3 +163,4 @@ class HumanPlayer:
     def reset_turn(self):
         """Reset turn-specific tracking"""
         self.messages_sent_this_turn.clear()
+        self.attacks_sent_this_turn.clear()

@@ -1,8 +1,6 @@
-import random
 import time
 from game_state import GameState
 from human_player import HumanPlayer
-from ai_neighbor import AINeighbor
 from llm_neighbor import LLMNeighbor
 from renderer import Renderer
 from actions import ActionHandler
@@ -36,19 +34,19 @@ def main():
     game_state.renderer = renderer
     
     # Main game loop
-    turn = 1
     while not game_state.is_game_over():
-        print(f"\n=== TURN {turn} ===")
+        print(f"\n=== TURN {game_state.turn} ===")
         
-        # Clear attack results at start of turn
+        # Clear attack results and old action results at start of turn
         renderer.clear_attack_results()
+        renderer.clear_old_action_results(game_state.turn)
         
         # Reset turn tracking for all entities
         player.reset_turn()
         for neighbor in neighbors:
             neighbor.reset_turn()
         
-        # Fixed turn order: player first, then neighbors in creation order
+        # Turn order: player first, then neighbors in creation order
         all_entities = [player] + neighbors
         
         for entity in all_entities:
@@ -69,7 +67,8 @@ def main():
         if game_state.check_victory_conditions():
             break
             
-        turn += 1
+        # Advance to next turn
+        game_state.advance_turn()
         time.sleep(TURN_DELAY)  # Pause between turns from config
     
     # Game over

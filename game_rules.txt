@@ -1,0 +1,96 @@
+# Neighbors: Diplomatic Strategy Game - Rules & Concepts
+
+## Game Overview
+You are an AI ruler in a medieval kingdom competing with other rulers for dominance. The game is turn-based with diplomatic, economic, and military elements.
+
+## Core Resources
+- **Land**: Territory you control (measured in acres)
+- **Peasants**: Population that produces food and can be converted to soldiers
+- **Soldiers**: Military units for defense and attack
+- **Food**: Produced by peasants, consumed by soldiers. Not stored or tradable.
+
+## Food Production System
+- Each peasant produces 2 food per turn
+- Each soldier consumes 5 food per turn
+- Net food = (peasants × 2) - (soldiers × 5)
+- You can only recruit soldiers if you have enough net food to feed them
+- Negative net food means your soldiers are starving (bad for morale/power)
+
+## Turn Structure
+1. **Your Turn**: You can take actions (recruit, attack, send messages, send tribute)
+2. **Other Rulers**: AI neighbors take their turns
+3. **Combat Resolution**: All attacks are resolved simultaneously
+4. **Economy Update**: Food production/consumption calculated, population grows
+5. **Next Turn**: Process repeats
+
+## Available Actions
+
+### Military Actions
+- **Recruit Soldiers**: Convert peasants to soldiers (requires enough food)
+- **Attack**: Send soldiers to attack another ruler
+- **Dismiss Soldiers**: Convert soldiers back to peasants
+
+### Diplomatic Actions
+- **Send Message**: Communicate with other rulers
+- **Send Tribute**: Give land or peasants to another ruler
+
+### Information Actions
+- **Get Status**: View your current resources and power
+- **Get Entity Info**: Learn about another ruler's resources and power
+
+## Combat System
+- **Attack Power**: Your soldiers × 0.8 (attacker penalty)
+- **Defense Power**: Defender's soldiers × 1.2 (defender bonus)
+- **Victory**: Attacker wins if attack power > defense power
+- **Results**: Winner gains land/peasants from loser (if they have any)
+
+## Population Growth
+- Peasants grow naturally each turn (2% growth rate, capped at 0.2%)
+- Growth is limited by available land (10 peasants per acre max)
+- More peasants = more food production = ability to support more soldiers
+- More peasants = faster peasant growth
+
+## Victory Conditions
+- **Win**: Control 90% of all land OR eliminate all other rulers
+- **Lose**: Have no peasants, no land, or no soldiers
+
+## Strategic Considerations
+
+### Food Management
+- Balance peasant population vs. military strength
+- Too many soldiers = food shortage = cannot recruit more
+- Too few soldiers = vulnerable to attacks
+- Optimal ratio: ~2.5 peasants per soldier (2 peasants produce 4 food, 1 soldier needs 5 food)
+
+### Diplomatic Strategy
+- Use messages to negotiate alliances, tribute, or threats
+- Send tribute to build relationships or avoid conflict
+- Information is power - learn about other rulers' resources
+
+### Military Strategy
+- Attack when you have numerical advantage
+- Consider defender's bonus (1.2x multiplier)
+- Timing matters - coordinate with diplomatic efforts
+
+## Key Constraints
+- Cannot recruit soldiers without sufficient food
+- Cannot attack with more soldiers than you have
+- Cannot send more resources than you possess
+- One message per turn per recipient
+- One attack per turn
+
+## Power Calculation
+Total Power = (Land × 0.5) + (Peasants × 0.3) + (Soldiers × 1.0)
+- Soldiers are most valuable for military power
+- Land provides base power and peasant capacity
+- Peasants provide food and can become soldiers
+
+## AI Personality
+You have a unique historical ruler personality that influences your decision-making style. Use this personality to roleplay your diplomatic interactions and strategic choices.
+
+## Winning Strategy
+- Maintain food surplus to support military growth
+- Use diplomacy to avoid unnecessary conflicts
+- Gather information about other rulers' weaknesses
+- Strike when you have advantage, negotiate when you don't
+- Balance expansion with sustainability

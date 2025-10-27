@@ -12,6 +12,9 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import MessagesState
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from config import *
 
 class LLMNeighbor:
@@ -24,45 +27,56 @@ class LLMNeighbor:
         self.llm = ChatOllama(
             base_url="http://localhost:11434",
             model="gpt-oss:20b",
-            temperature=0.5,
-            top_p=0.5,
-            top_k=20,
+            temperature=0.6,
+            top_p=0.8,
+            top_k=50,
             repeat_penalty=1.1,
             repeat_last_n=64,
             num_ctx=24000,
             num_predict=1536,
-            seed=4223546,
+            #seed=4223546,
             keep_alive="7m",
             num_thread=8
         )
 
-        self.prompt_template = """Your name is {name}. Your personality traits are: {personality}. Your current status is: {status}. The game state is: {game_state}.
+        self.prompt_template = """Your name is {name}. You are: {personality}. Your current status is: {status}. The game state is: {game_state_info}.
 
         Events since your last turn:
         {turn_summary}
 
+        Relevant game rules:
+        {relevant_rules}
+
         {agent_scratchpad}"""
+
+        # Initialize RAG system
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2", model_kwargs={"device": "cpu"})
+        self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        self.vectorstore = None
+        self.setup_rag()
         
         # Starting resources from config
         self.land = STARTING_LAND
         self.peasants = STARTING_PEASANTS
         self.soldiers = STARTING_SOLDIERS
-        self.revenue = STARTING_PEASANTS * REVENUE_PER_PEASANT
-        self.expenses = STARTING_SOLDIERS * EXPENSE_PER_SOLDIER
-        self.net_profit = self.revenue - self.expenses
+        self.food_production = STARTING_PEASANTS * FOOD_PER_PEASANT
+        self.food_consumption = STARTING_SOLDIERS * FOOD_PER_SOLDIER
+        self.net_food = self.food_production - self.food_consumption
         
-        # AI personality traits
+        # Generate the AI's personality
         self.personality = self.generate_personality()
         
         # Message tracking
         self.messages_sent_this_turn = set()
         self.message_history = []
         
-        # AI state
-        self.current_goals = []
-        self.trust_levels = {}  # Trust in other entities
+        # Attack tracking
+        self.attacks_sent_this_turn = set()
+        
+        # AI memory
         self.checkpointer = InMemorySaver()
 
+        # Build the langgraph graph, which is an agentic loop
         self.graph = self.build_graph()
     def take_turn(self):
         """LLM agent takes its turn"""
@@ -73,30 +87,21 @@ class LLMNeighbor:
         --------------------------------------------
 
         """)
-        # Get current game state for the LLM
-        gameStateInfo = self._get_game_state_info()
-        
         try:
-            # Build message history text
-            message_history_text = ""
-            for msg in self.message_history[-15:]:  # Last 15 messages
-                if 'from' in msg:
-                    message_history_text += f"Message from {msg['from']}: {msg['content']}\n"
-                else:
-                    message_history_text += f"Message to {msg['to']}: {msg['content']}\n"
-            
-            if not message_history_text:
-                message_history_text = "No recent messages."
+            # Get current game state for the LLM
+            gameStateInfo = self.get_game_state_info()
             
             turn_summary = self.get_ai_turn_summary()
+
+            relevant_rules = self.get_relevant_rules(f"{self.get_ai_turn_summary()}")
 
             formatted_prompt = self.prompt_template.format(
                 name=self.name,
                 personality=self.personality,
                 status=self.get_status(),
-                game_state=gameStateInfo,
-                message_history=message_history_text,
-                turn_summary=turn_summary,  # Add this
+                game_state_info=gameStateInfo,
+                turn_summary=turn_summary,
+                relevant_rules=relevant_rules,
                 agent_scratchpad=""
             )
 		
@@ -135,11 +140,13 @@ class LLMNeighbor:
             for attack in outgoing_attacks:
                 summary_parts.append(f"  - {attack}")
         
-        # Check for messages received
-        recent_messages = [msg for msg in self.message_history if msg.get('from')]
+        # Check for messages received since last turn
+        current_turn = self.game_state.turn
+        recent_messages = [msg for msg in self.message_history 
+                          if msg.get('from') and msg.get('turn', 0) == current_turn]
         if recent_messages:
             summary_parts.append("MESSAGES RECEIVED:")
-            for msg in recent_messages[-3:]:  # Last 3 messages
+            for msg in recent_messages:
                 summary_parts.append(f"  - From {msg['from']}: {msg['content']}")
         
         # Check for resource changes
@@ -175,17 +182,22 @@ class LLMNeighbor:
     def generate_personality(self):
         """Generate a personality description by asking AI to create a historical ruler"""
         
-        prompt = """Create a brief personality description (2-3 sentences) for a historical ruler that could exist in a medieval/fantasy setting. 
-        Include their name, key traits, and ruling style. Make it unique and interesting for a diplomatic strategy game.
+        prompt = f"""Create a brief personality description (2-3 sentences) for a historical ruler that could exist in a medieval setting ruling {self.name}. 
+        Include their key traits, and ruling style. Make it unique and interesting for a diplomatic medieval strategy game. Make sure each personality loves talking to other players.
         
-        Format: "[Ruler Name] - [2-3 sentence personality description]"
+        Format: "[2-3 sentence personality description]"
         
-        Example: "King Aldric the Wise - A patient and calculating ruler known for his diplomatic skills and long-term planning. He prefers negotiation over warfare but is not afraid to use force when necessary. He values knowledge and often seeks counsel from scholars and advisors."
+        Example: "A patient and calculating ruler known for his diplomatic skills and long-term planning. He prefers negotiation over warfare but is not afraid to use force when necessary. He values knowledge and often seeks counsel from scholars and advisors.
+        
+        Example: "A bloodthirsty and ruthless ruler known for his brutal tactics and willingness to use violence to achieve his goals. He values strength and power above all else and is not afraid to use force to expand his territory or extract tribute."
+        
+        Example: "A cunning and manipulative ruler known for her ability to use diplomacy and deception to achieve her goals. She values intelligence and often seeks counsel from her advisors and spies. She is not afraid to use force to expand her territory or extract tribute."
         
         Create a new, unique ruler:"""
         
         try:
             response = self.llm.invoke(prompt)
+            print(f"Personality: {response.content.strip()}")
             return response.content.strip()
         except Exception as e:
             print(f"Error generating personality: {e}")
@@ -208,18 +220,18 @@ class LLMNeighbor:
         # Calculate revenue based on peasants per acre efficiency
         peasants_per_acre = self.peasants / self.land if self.land > 0 else 0
         
-        # Update revenue and expenses using config values
-        self.revenue = int(self.peasants * REVENUE_PER_PEASANT * (peasants_per_acre / REVENUE_EFFICIENCY_SCALE))
-        self.expenses = self.soldiers * EXPENSE_PER_SOLDIER
-        self.net_profit = self.revenue - self.expenses
+        # Calculate food production and consumption
+        self.food_production = self.peasants * FOOD_PER_PEASANT
+        self.food_consumption = self.soldiers * FOOD_PER_SOLDIER
+        self.net_food = self.food_production - self.food_consumption
     
-    def _get_game_state_info(self):
+    def get_game_state_info(self):
         """Get current game state information for the LLM"""
         all_entities = [self.game_state.player] + self.game_state.neighbors
         other_entities = [e for e in all_entities if e != self]
         
         info = f"Your resources: {self.peasants} peasants, {self.soldiers} soldiers, {self.land} land\n"
-        info += f"Your economy: {self.revenue} revenue, {self.expenses} expenses, {self.net_profit} net\n"
+        info += f"Your food: {self.food_production} production, {self.food_consumption} consumption, {self.net_food} net\n"
         
         for entity in other_entities:
             relative_power = self.game_state.get_relative_power(self, entity)
@@ -230,10 +242,9 @@ class LLMNeighbor:
     # Tool functions that the LLM can call
     def get_status(self) -> str:
         """Get current status and resources"""
-        return f"""Status for {self.name}:
-        Land: {self.land}
+        return f"""Land: {self.land}
         Population: {self.peasants} peasants, {self.soldiers} soldiers
-        Economy: {self.revenue} revenue, {self.expenses} expenses, {self.net_profit} net profit
+        Food: {self.food_production} production, {self.food_consumption} consumption, {self.net_food} net
         Total Power: {self.get_total_power():.1f}"""
     
     def get_entity_info(self, entity_name: str) -> str:
@@ -244,9 +255,34 @@ class LLMNeighbor:
             return f"""{entity_name}:
             Land: {entity.land}
             Population: {entity.peasants} peasants, {entity.soldiers} soldiers
-            Economy: {entity.revenue} revenue, {entity.expenses} expenses
+            Food: {entity.food_production} production, {entity.food_consumption} consumption, {entity.net_food} net
             Relative Power: {relative_power}"""
         return f"Entity {entity_name} not found"
+    
+    def get_player_info(self, player_name: str) -> str:
+        """Get detailed information about another player including their resource counts"""
+        entity = self.game_state.get_entity_by_name(player_name)
+        if not entity:
+            return f"Player '{player_name}' not found. Available players: {', '.join([e.name for e in [self.game_state.player] + self.game_state.neighbors if e.name != self.name])}"
+        
+        # Calculate relative power
+        relative_power = self.game_state.get_relative_power(self, entity)
+        
+        return f"""Player Information for {player_name}:
+        
+        Resources:
+        Land: {entity.land} acres
+        Peasants: {entity.peasants}
+        Soldiers: {entity.soldiers}
+        
+        Economy:
+        Food Production: {entity.food_production}
+        Food Consumption: {entity.food_consumption}
+        Net Food: {entity.net_food}
+        
+        Military:
+        Total Power: {entity.get_total_power():.1f}
+        Relative Power vs You: {relative_power}"""
     
     def recruit_soldiers(self, amount: int) -> str:
         """Recruit soldiers from peasants"""
@@ -281,7 +317,7 @@ class LLMNeighbor:
         return f"Cannot invest {amount}. Need {amount} net profit."
     
     def send_message(self, recipient_name: str, content: str) -> str:
-        """Send a message to another player"""
+        """Send a diplomatic message to another entity. This is FREE and has NO COST. Use this to negotiate, threaten, form alliances, gather information, or respond to other players. You can only message each entity once per turn, so make it count! Messages are your primary tool for diplomacy and can prevent wars or secure tribute."""
         if recipient_name not in self.messages_sent_this_turn:
             self.game_state.send_message(self, recipient_name, content)
             self.messages_sent_this_turn.add(recipient_name)
@@ -299,6 +335,10 @@ class LLMNeighbor:
         if not target:
             return f"Target {target_name} not found."
         
+        # Check if already attacked this target this turn
+        if target_name in self.attacks_sent_this_turn:
+            return f"Already attacked {target_name} this turn. You can only attack each player once per turn."
+        
         if self.soldiers < 50:
             return "Need at least 50 soldiers to attack."
         
@@ -314,6 +354,9 @@ class LLMNeighbor:
             'defender': target,
             'attacker_soldiers': attack_force
         })
+        
+        # Track this attack
+        self.attacks_sent_this_turn.add(target_name)
         
         return f"Attacking {target_name} with {attack_force} soldiers!"
     
@@ -345,15 +388,20 @@ class LLMNeighbor:
             self.peasants -= peasant_amount
             target.peasants += peasant_amount
         
-        # Send a message about the tribute
+        # Send a message about the tribute (don't count as a regular message)
         tribute_message = f"Tribute sent: {land_amount} land, {peasant_amount} peasants"
-        self.send_message(recipient_name, tribute_message)
+        self.game_state.send_message(self, recipient_name, tribute_message)
+        self.message_history.append({
+            'to': recipient_name,
+            'content': tribute_message,
+            'turn': self.game_state.turn
+        })
         
         return f"Sent tribute to {recipient_name}: {land_amount} land, {peasant_amount} peasants"
     
     def can_recruit_soldiers(self, amount):
         """Check if AI can recruit specified number of soldiers"""
-        return self.peasants >= amount and self.net_profit >= amount * EXPENSE_PER_SOLDIER
+        return self.peasants >= amount and self.net_food >= amount * FOOD_PER_SOLDIER
     
     def receive_message(self, message_data):
         """Receive a message from another entity"""
@@ -366,6 +414,7 @@ class LLMNeighbor:
     def reset_turn(self):
         """Reset turn-specific tracking"""
         self.messages_sent_this_turn.clear()
+        self.attacks_sent_this_turn.clear()
     
     def _execute_tool_calls(self, tool_calls):
         """Execute tool calls from the LLM response"""
@@ -383,7 +432,7 @@ class LLMNeighbor:
                     except Exception as e:
                         print(f"{self.name}: Error executing {tool_name}: {e}")
                     break
-    
+
     def build_graph(self):
         # Define tools as instance methods
         tools = [
@@ -400,7 +449,7 @@ class LLMNeighbor:
             StructuredTool.from_function(
                 func=self.send_message,
                 name="send_message",
-                description="Send a diplomatic message to another entity and decide what to say in the message. They will see the message in their inbox on their next turn."
+                description="Send a diplomatic message to another entity. This is FREE and has NO COST. Use this to negotiate, threaten, form alliances, gather information, or respond to other players. You can only message each entity once per turn, so make it count! Messages are your primary tool for diplomacy and can prevent wars or secure tribute."
             ),
             StructuredTool.from_function(
                 func=self.attack_target,
@@ -411,6 +460,16 @@ class LLMNeighbor:
                 func=self.send_tribute,
                 name="send_tribute",
                 description="Send tribute (land or peasants) to another entity. This can be used for diplomacy, trade, alliances, or to avoid conflict."
+            ),
+            StructuredTool.from_function(
+                func=self.get_relevant_rules,
+                name="get_relevant_rules",
+                description="Retrieve the most relevant game rules or policies for a question. Call this BEFORE deciding actions if you're unsure what's allowed, what's efficient, or what is strategically wise."
+            ),
+            StructuredTool.from_function(
+                func=self.get_player_info,
+                name="get_player_info",
+                description="Get detailed information about another player including their resources, military strength, economy, and diplomatic relations. Use this to assess other players before making diplomatic or military decisions."
             )
         ]
         # load the system prompt from the file
@@ -495,7 +554,7 @@ class LLMNeighbor:
                     result = tool_func.invoke(tool_args)
                     print(f"✅ Tool {tool_name} executed successfully")
                     print(f"📊 Result type: {type(result)}")
-                    print(f"📄 Result preview: {str(result)[:3000]}{'...' if len(str(result)) > 200 else ''}")
+                    print(f"📄 Result preview: {result}")
                     
                     tool_results.append(ToolMessage(
                         content=str(result),
@@ -532,3 +591,33 @@ class LLMNeighbor:
         graph.add_edge("tools", "agent")
 
         return graph.compile(checkpointer=self.checkpointer)
+
+    def setup_rag(self):
+        """Setup RAG system with game rules"""
+        try:
+            with open('game_rules.txt', 'r', encoding='utf-8') as f:
+                rules_text = f.read()
+            
+            # Split into chunks
+            chunks = self.text_splitter.split_text(rules_text)
+            
+            # Create vector store
+            self.vectorstore = Chroma.from_texts(
+                chunks, 
+                self.embeddings,
+                collection_name=f"game_rules_{self.player_id}"
+            )
+        except Exception as e:
+            print(f"Error setting up RAG: {e}")
+            self.vectorstore = None
+
+    def get_relevant_rules(self, query: str) -> str:
+        """Get relevant game rules for a specific query"""
+        if not self.vectorstore:
+            return "Game rules not available."
+        
+        try:
+            docs = self.vectorstore.similarity_search(query, k=3)
+            return "\n".join([doc.page_content for doc in docs])
+        except Exception as e:
+            return f"Error retrieving rules: {e}"

@@ -62,19 +62,19 @@ class ActionHandler:
                     message = input("Enter your message: ")
                     if player.send_message(recipient.name, message):
                         result = f"Message sent to {recipient.name}!"
-                        self.renderer.set_last_action_result(result)
+                        self.renderer.set_last_action_result(result, self.game_state.turn)
                     else:
                         result = "Failed to send message."
-                        self.renderer.set_last_action_result(result)
+                        self.renderer.set_last_action_result(result, self.game_state.turn)
                 else:
                     result = f"You've already sent a message to {recipient.name} this turn."
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
             else:
                 result = "Invalid choice."
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
         except ValueError:
             result = "Please enter a valid number."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_recruit_soldiers(self, player):
         """Handle recruiting soldiers"""
@@ -82,13 +82,13 @@ class ActionHandler:
             amount = int(input("How many soldiers to recruit? "))
             if player.recruit_soldiers(amount):
                 result = f"Recruited {amount} soldiers!"
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
             else:
                 result = "Cannot recruit that many soldiers. Check your peasants and finances."
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
         except ValueError:
             result = "Please enter a valid number."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_dismiss_soldiers(self, player):
         """Handle dismissing soldiers"""
@@ -96,23 +96,23 @@ class ActionHandler:
             amount = int(input("How many soldiers to dismiss? "))
             if player.dismiss_soldiers(amount):
                 result = f"Dismissed {amount} soldiers!"
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
             else:
                 result = "Cannot dismiss that many soldiers."
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
         except ValueError:
             result = "Please enter a valid number."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_extort_taxes(self, player):
         """Handle extorting taxes"""
         if player.peasants >= 100:
             money_gained = player.extort_taxes()
             result = f"Extorted high taxes! Gained {money_gained} but lost 100 peasants."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
         else:
             result = "Not enough peasants to extort taxes."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_invest(self, player):
         """Handle investing"""
@@ -120,19 +120,19 @@ class ActionHandler:
             amount = int(input("How much to invest? "))
             if player.invest(amount):
                 result = f"Invested {amount}!"
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
             else:
                 result = "Cannot invest that much. Check your finances."
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
         except ValueError:
             result = "Please enter a valid number."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_attack(self, player):
         """Handle attacking a neighbor"""
         if player.soldiers < MIN_ATTACK_FORCE:
             result = f"You need at least {MIN_ATTACK_FORCE} soldiers to launch an attack!"
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
             return
         
         print("\nAvailable targets:")
@@ -157,25 +157,29 @@ class ActionHandler:
                     if player.attack_target(target.name, attack_force):
                         # Queue the attack to be resolved with others
                         result = f"Attack queued! You will attack {target.name} with {attack_force} soldiers at the end of the turn."
-                        self.renderer.set_last_action_result(result)
+                        self.renderer.set_last_action_result(result, self.game_state.turn)
                     else:
-                        result = "Failed to launch attack."
-                        self.renderer.set_last_action_result(result)
+                        # Check if it's because they already attacked this turn
+                        if target.name in player.attacks_sent_this_turn:
+                            result = f"You have already attacked {target.name} this turn. You can only attack each player once per turn."
+                        else:
+                            result = "Failed to launch attack."
+                        self.renderer.set_last_action_result(result, self.game_state.turn)
                 else:
                     result = f"Attack force must be between {min_attack} and {max_attack}."
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
             else:
                 result = "Invalid choice."
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
         except ValueError:
             result = "Please enter a valid number."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     
     def handle_send_diplomat(self, player):
         """Handle sending a diplomat (simplified for now)"""
         result = "Diplomatic system not yet implemented. Use 'Send Message' for now to communicate with neighbors."
-        self.renderer.set_last_action_result(result)
+        self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def handle_send_tribute(self, player):
         """Handle sending tribute to a neighbor"""
@@ -195,35 +199,35 @@ class ActionHandler:
                 land_amount = int(input(f"How much land to send? (0-{player.land}): "))
                 if land_amount < 0 or land_amount > player.land:
                     result = "Invalid land amount."
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
                     return
                 
                 # Get peasant amount
                 peasant_amount = int(input(f"How many peasants to send? (0-{player.peasants}): "))
                 if peasant_amount < 0 or peasant_amount > player.peasants:
                     result = "Invalid peasant amount."
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
                     return
                 
                 # Check if at least something is being sent
                 if land_amount == 0 and peasant_amount == 0:
                     result = "Must send at least some land or peasants."
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
                     return
                 
                 # Send tribute
                 if player.send_tribute(recipient.name, land_amount, peasant_amount):
                     result = f"Tribute sent to {recipient.name}: {land_amount} land, {peasant_amount} peasants"
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
                 else:
                     result = "Failed to send tribute."
-                    self.renderer.set_last_action_result(result)
+                    self.renderer.set_last_action_result(result, self.game_state.turn)
             else:
                 result = "Invalid choice."
-                self.renderer.set_last_action_result(result)
+                self.renderer.set_last_action_result(result, self.game_state.turn)
         except ValueError:
             result = "Please enter valid numbers."
-            self.renderer.set_last_action_result(result)
+            self.renderer.set_last_action_result(result, self.game_state.turn)
     
     def display_detailed_status(self, player):
         """Display detailed status information"""
@@ -231,9 +235,9 @@ class ActionHandler:
         print(f"Land: {player.land}")
         print(f"Peasants: {player.peasants}")
         print(f"Soldiers: {player.soldiers}")
-        print(f"Revenue: {player.revenue}")
-        print(f"Expenses: {player.expenses}")
-        print(f"Net Profit/Loss: {player.net_profit}")
+        print(f"Food Production: {player.food_production}")
+        print(f"Food Consumption: {player.food_consumption}")
+        print(f"Net Food: {player.net_food}")
         print(f"Total Power: {player.get_total_power():.1f}")
         
         input("\nPress Enter to continue...")

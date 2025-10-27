@@ -4,7 +4,7 @@ from config import *
 
 class GameState:
     def __init__(self):
-        self.turn = 0
+        self.turn = 1
         self.player = None
         self.neighbors = []
         self.message_queue = []
@@ -114,15 +114,15 @@ class GameState:
         attacker.soldiers = max(0, attacker.soldiers - attacker_losses)
         defender.soldiers = max(0, defender.soldiers - defender_losses)
         
-        # Store combat result with more detail
+        # Store combat result with more detail including soldier losses
         if land_gained > 0 and peasants_gained > 0:
-            result = f"{attacker.name} defeats {defender.name}! Gains {land_gained} acres and {peasants_gained} peasants."
+            result = f"{attacker.name} defeats {defender.name}! Gains {land_gained} acres and {peasants_gained} peasants. {attacker.name} loses {attacker_losses} soldiers, {defender.name} loses {defender_losses} soldiers."
         elif land_gained > 0:
-            result = f"{attacker.name} defeats {defender.name}! Gains {land_gained} acres (defender had no peasants)."
+            result = f"{attacker.name} defeats {defender.name}! Gains {land_gained} acres (defender had no peasants). {attacker.name} loses {attacker_losses} soldiers, {defender.name} loses {defender_losses} soldiers."
         elif peasants_gained > 0:
-            result = f"{attacker.name} defeats {defender.name}! Gains {peasants_gained} peasants (defender had no land)."
+            result = f"{attacker.name} defeats {defender.name}! Gains {peasants_gained} peasants (defender had no land). {attacker.name} loses {attacker_losses} soldiers, {defender.name} loses {defender_losses} soldiers."
         else:
-            result = f"{attacker.name} defeats {defender.name}! No resources gained (defender had no land or peasants)."
+            result = f"{attacker.name} defeats {defender.name}! No resources gained (defender had no land or peasants). {attacker.name} loses {attacker_losses} soldiers, {defender.name} loses {defender_losses} soldiers."
         
         self.combat_results.append(result)
         
@@ -159,8 +159,8 @@ class GameState:
         attacker.soldiers = max(0, attacker.soldiers - attacker_losses)
         defender.soldiers = max(0, defender.soldiers - defender_losses)
         
-        # Store combat result with more detail
-        result = f"{defender.name} repels {attacker.name}'s attack! {attacker.name} loses {attacker_losses} soldiers."
+        # Store combat result with more detail including soldier losses for both sides
+        result = f"{defender.name} repels {attacker.name}'s attack! {attacker.name} loses {attacker_losses} soldiers, {defender.name} loses {defender_losses} soldiers."
         self.combat_results.append(result)
         
         # Track specific results for player
@@ -202,6 +202,10 @@ class GameState:
                 'turn': self.turn
             }
             recipient.receive_message(message_data)
+    
+    def advance_turn(self):
+        """Advance to the next turn"""
+        self.turn += 1
     
     def is_game_over(self):
         """Check if game should end"""

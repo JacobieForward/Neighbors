@@ -5,6 +5,7 @@ class Renderer:
     def __init__(self):
         #self.clear_screen()
         self.last_action_result = None  # Store the result of the last action
+        self.last_action_turn = None  # Store the turn when the last action was performed
         self.player_attack_results = []  # Track player's attack results
         self.incoming_attack_results = []  # Track attacks against player
     
@@ -12,9 +13,10 @@ class Renderer:
         """Clear the terminal screen"""
         os.system('cls' if os.name == 'nt' else 'clear')
     
-    def set_last_action_result(self, result):
+    def set_last_action_result(self, result, turn=None):
         """Set the result of the last action"""
         self.last_action_result = result
+        self.last_action_turn = turn
     
     def add_player_attack_result(self, result):
         """Add a result from a player's attack"""
@@ -28,6 +30,12 @@ class Renderer:
         """Clear stored attack results"""
         self.player_attack_results.clear()
         self.incoming_attack_results.clear()
+    
+    def clear_old_action_results(self, current_turn):
+        """Clear action results from previous turns"""
+        if self.last_action_turn is not None and self.last_action_turn < current_turn:
+            self.last_action_result = None
+            self.last_action_turn = None
     
     def display_game_state(self, game_state, player, show_action_result=True):
         """Display the current game state"""
@@ -46,11 +54,12 @@ class Renderer:
         
         # Display player's resources
         worked_land = player.peasants // PEASANTS_PER_ACRE if PEASANTS_PER_ACRE > 0 else 0
+        # Ensure worked land cannot exceed total land
+        worked_land = min(worked_land, player.land)
         print(f"\n{player.name} - Your Kingdom:")
         print(f"Land: {player.land} | Worked Land: {worked_land}")
         print(f"Population: {player.peasants} peasants, {player.soldiers} soldiers")
-        print(f"Economy: {player.revenue} revenue, {player.expenses} expenses")
-        print(f"Net: {player.net_profit} profit/loss")
+        print(f"Food: {player.food_production} production, {player.food_consumption} consumption, {player.net_food} net")
         
         # Display neighbors' relative power
         print(f"\nNeighbors:")
@@ -82,7 +91,7 @@ class Renderer:
                     print(f"  {result}")
                 print("-" * 60)
             
-            if self.last_action_result:
+            if self.last_action_result and self.last_action_turn == game_state.turn:
                 print(f"\n📋 Last Action Result:")
                 print(f"  {self.last_action_result}")
                 print("-" * 60)
@@ -118,7 +127,8 @@ class Renderer:
         for i, entity in enumerate(all_entities, 1):
             power = entity.get_total_power()
             land = entity.land
-            print(f"{i}. {entity.name}: {power:.1f} power, {land} acres")
+            net_food = entity.net_food
+            print(f"{i}. {entity.name}: {power:.1f} power, {land} acres, {net_food} net food")
         
         if all_entities[0] == game_state.player:
             print("\n🎉 Victory! You have achieved dominance!")

@@ -2,16 +2,15 @@
 
 # Starting resources for all entities
 STARTING_LAND = 500
-STARTING_PEASANTS = 2000
-STARTING_SOLDIERS = 400
+STARTING_PEASANTS = 4500
+STARTING_SOLDIERS = 500
 
-# Economic constants
-PEASANT_GROWTH_RATE = 0.2
-PEASANT_GROWTH_RATE_CAPPED = 0.02
+# Food production constants
+PEASANT_GROWTH_RATE = 0.05
+PEASANT_GROWTH_RATE_CAPPED = 0.01
 PEASANTS_PER_ACRE = 10
-REVENUE_PER_PEASANT = 1.0
-EXPENSE_PER_SOLDIER = 3
-REVENUE_EFFICIENCY_SCALE = 10  # Scale factor for revenue calculation
+FOOD_PER_PEASANT = 2  # Each peasant produces 2 food
+FOOD_PER_SOLDIER = 5  # Each soldier consumes 5 food
 
 # Combat constants
 ATTACKER_PENALTY = 0.8
