@@ -1,16 +1,11 @@
 # LLM Neighbor that uses tools to call game actions
 from langchain_core.tools import StructuredTool
-import random
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_community.chat_models.llamacpp import ChatLlamaCpp
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import tools_condition
 #from langchain_ollama import ChatOllama
 from langgraph.graph import MessagesState
-from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -19,39 +14,36 @@ from config import *
 import os
 
 class LLMNeighbor:
-    def __init__(self, name, game_state, player_id):
+    def __init__(self, name, game_state, player_id, verbose_logging=True, use_ollama=False):
         self.name = name
         self.game_state = game_state
         self.player_id = player_id
+        self.verbose_logging = verbose_logging
 
-        # Initialize LLM and tools
-        #self.llm = ChatOllama(
-        #    base_url="http://localhost:11434",
-        #    model="gpt-oss:20b",
-        #    temperature=0.6,
-        #    top_p=0.8,
-        #    top_k=50,
-        #    repeat_penalty=1.1,
-        #    repeat_last_n=64,
-        #    num_ctx=24000,
-        #    num_predict=1536,
-        #    keep_alive="7m",
-        #    num_thread=8
-        #)
-        # Initialize OpenAI LLM
-        self.llm = ChatOpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="gpt-4o-mini",
-            temperature=0.5,
-            top_p=0.8,
-            top_k=50,
-            repeat_penalty=1.1,
-            repeat_last_n=64,
-            num_ctx=24000,
-            num_predict=1536,
-            keep_alive="7m",
-            num_thread=8,
-        )
+        # Initialize LLM based on use_ollama parameter
+        if use_ollama:
+            from langchain_ollama import ChatOllama
+            self.llm = ChatOllama(
+                base_url="http://localhost:11434",
+                model="gpt-oss:20b",
+                temperature=0.6,
+                top_p=0.8,
+                top_k=50,
+                repeat_penalty=1.1,
+                repeat_last_n=64,
+                num_ctx=24000,
+                num_predict=1536,
+                keep_alive="7m",
+                num_thread=8
+            )
+        else:
+            # Initialize OpenAI LLM
+            self.llm = ChatOpenAI(
+                api_key=os.getenv("OPENAI_API_KEY"),
+                model="gpt-4o-mini",
+                temperature=0.5,
+                top_p=0.8,
+            )
 
         self.prompt_template = """Your name is {name}. You are: {personality}. Your current status is: {status}. The game state is: {game_state_info}.
 
@@ -94,7 +86,8 @@ class LLMNeighbor:
         self.graph = self.build_graph()
     def take_turn(self):
         """LLM agent takes its turn"""
-        print(f"""
+        if self.verbose_logging:
+            print(f"""
 
         --------------------------------------------
         🤖🤖🤖 LLM {self.name} taking turn 🤖🤖🤖
@@ -120,8 +113,9 @@ class LLMNeighbor:
             )
 		
             result = self.graph.invoke({"messages": [HumanMessage(content=formatted_prompt)]}, config={"configurable":{"thread_id":self.player_id}})
-            print(formatted_prompt)
-            print(result["messages"][-1].content)
+            if self.verbose_logging:
+                print(formatted_prompt)
+                print(result["messages"][-1].content)
         except Exception as e:
             print(f"Error in LLM turn for {self.name}: {e}")
         
@@ -211,10 +205,12 @@ class LLMNeighbor:
         
         try:
             response = self.llm.invoke(prompt)
-            print(f"Personality: {response.content.strip()}")
+            if self.verbose_logging:
+                print(f"Personality: {response.content.strip()}")
             return response.content.strip()
         except Exception as e:
-            print(f"Error generating personality: {e}")
+            if self.verbose_logging:
+                print(f"Error generating personality: {e}")
             return "You only scream FAILURE"
     
     def get_total_power(self):
@@ -230,9 +226,6 @@ class LLMNeighbor:
         
         if self.land > 0:
             self.peasants += new_peasants
-        
-        # Calculate revenue based on peasants per acre efficiency
-        peasants_per_acre = self.peasants / self.land if self.land > 0 else 0
         
         # Calculate food production and consumption
         self.food_production = self.peasants * FOOD_PER_PEASANT
@@ -481,43 +474,79 @@ class LLMNeighbor:
 
         graph = StateGraph(MessagesState)
 
-        # Node 1: The agent with logging
         def agent_node(state: MessagesState):
-            print(f"\n🤖 AGENT NODE - Processing message for {self.name}...")
+            if self.verbose_logging:
+                print(f"\n🤖 AGENT NODE - Processing message for {self.name}...")
             messages = state["messages"]
-            print(f"📝 Input messages count: {len(messages)}")
+            if self.verbose_logging:
+                print(f"📝 Input messages count: {len(messages)}")
             
             try:
                 # Add system message at the beginning
                 messages_with_system = [sys_msg] + messages
                 
                 response = self.llm.invoke(messages_with_system)
-                print(f"✅ Agent response generated successfully")
-                print(f"📤 Response type: {type(response)}")
-                if hasattr(response, 'tool_calls') and response.tool_calls:
-                    print(f"🔧 Tool calls requested: {len(response.tool_calls)}")
-                    for i, tool_call in enumerate(response.tool_calls):
-                        print(f"   Tool {i+1}: {tool_call['name']} with args: {tool_call['args']}")
-                else:
-                    print("💬 No tool calls - direct response")
-                
+                if self.verbose_logging:
+                    print(f"✅ Agent response generated successfully")
+                    print(f"📤 Response type: {type(response)}")
+                    if hasattr(response, 'tool_calls') and response.tool_calls:
+                        print(f"🔧 Tool calls requested: {len(response.tool_calls)}")
+                        for i, tool_call in enumerate(response.tool_calls):
+                            print(f"   Tool {i+1}: {tool_call['name']} with args: {tool_call['args']}")
+                    else:
+                        print("💬 No tool calls - direct response")
+                elif not self.verbose_logging:
+                    # Print succinct action summaries based on tool calls
+                    if hasattr(response, 'tool_calls') and response.tool_calls:
+                        for tool_call in response.tool_calls:
+                            tool_name = tool_call['name']
+                            tool_args = tool_call['args']
+                            
+                            if tool_name == 'recruit_soldiers':
+                                amount = tool_args.get('amount', 0)
+                                print(f"{self.name} recruited {amount} soldiers")
+                            elif tool_name == 'dismiss_soldiers':
+                                amount = tool_args.get('amount', 0)
+                                print(f"{self.name} dismissed {amount} soldiers")
+                            elif tool_name == 'send_message':
+                                recipient = tool_args.get('recipient_name', 'someone')
+                                print(f"{self.name} sent a message to {recipient}")
+                            elif tool_name == 'attack_target':
+                                target = tool_args.get('target_name', 'someone')
+                                attack_force = tool_args.get('attack_force', 'unknown')
+                                print(f"{self.name} attacked {target} with {attack_force} soldiers")
+                            elif tool_name == 'send_tribute':
+                                recipient = tool_args.get('recipient_name', 'someone')
+                                land = tool_args.get('land_amount', 0)
+                                peasants = tool_args.get('peasant_amount', 0)
+                                print(f"{self.name} sent tribute to {recipient}: {land} land, {peasants} peasants")
+                            elif tool_name == 'get_player_info':
+                                player = tool_args.get('player_name', 'someone')
+                                print(f"{self.name} gathered intelligence on {player}")
+                            elif tool_name == 'get_relevant_rules':
+                                print(f"{self.name} consulted the rulebook")
+                    else:
+                        print(f"{self.name} took no action this turn")
+
                 return {"messages": [response]}
             except Exception as e:
                 print(f"❌ Error in agent node: {e}")
                 raise
 
-        # Node 2: The tools with detailed logging
-        def tool_node_with_logging(state: MessagesState):
-            print(f"\n🔧 TOOL NODE - Executing tools...")
+        def tool_node(state: MessagesState):
+            if self.verbose_logging:
+                print(f"\n🔧 TOOL NODE - Executing tools...")
             messages = state["messages"]
             
             # Find the last message with tool calls
             last_message = messages[-1]
             if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
-                print("⚠️ No tool calls found in last message")
+                if self.verbose_logging:
+                    print("⚠️ No tool calls found in last message")
                 return {"messages": []}
             
-            print(f"🎯 Found {len(last_message.tool_calls)} tool calls to execute")
+            if self.verbose_logging:
+                print(f"🎯 Found {len(last_message.tool_calls)} tool calls to execute")
             
             tool_results = []
             for i, tool_call in enumerate(last_message.tool_calls):
@@ -525,10 +554,11 @@ class LLMNeighbor:
                 tool_args = tool_call['args']
                 tool_id = tool_call['id']
                 
-                print(f"\n🔨 Executing Tool {i+1}/{len(last_message.tool_calls)}:")
-                print(f"   Name: {tool_name}")
-                print(f"   Args: {tool_args}")
-                print(f"   ID: {tool_id}")
+                if self.verbose_logging:
+                    print(f"\n🔨 Executing Tool {i+1}/{len(last_message.tool_calls)}:")
+                    print(f"   Name: {tool_name}")
+                    print(f"   Args: {tool_args}")
+                    print(f"   ID: {tool_id}")
                 
                 try:
                     # Find the tool function
@@ -540,7 +570,8 @@ class LLMNeighbor:
                     
                     if not tool_func:
                         error_msg = f"Tool '{tool_name}' not found"
-                        print(f"❌ {error_msg}")
+                        if self.verbose_logging:
+                            print(f"❌ {error_msg}")
                         tool_results.append(ToolMessage(
                             content=error_msg,
                             tool_call_id=tool_id
@@ -548,11 +579,13 @@ class LLMNeighbor:
                         continue
                     
                     # Execute the tool
-                    print(f"⚡ Executing {tool_name}...")
+                    if self.verbose_logging:
+                        print(f"⚡ Executing {tool_name}...")
                     result = tool_func.invoke(tool_args)
-                    print(f"✅ Tool {tool_name} executed successfully")
-                    print(f"📊 Result type: {type(result)}")
-                    print(f"📄 Result preview: {result}")
+                    if self.verbose_logging:
+                        print(f"✅ Tool {tool_name} executed successfully")
+                        print(f"📊 Result type: {type(result)}")
+                        print(f"📄 Result preview: {result}")
                     
                     tool_results.append(ToolMessage(
                         content=str(result),
@@ -561,18 +594,20 @@ class LLMNeighbor:
                     
                 except Exception as e:
                     error_msg = f"Error executing {tool_name}: {str(e)}"
-                    print(f"❌ {error_msg}")
+                    if self.verbose_logging:
+                        print(f"❌ {error_msg}")
                     tool_results.append(ToolMessage(
                         content=error_msg,
                         tool_call_id=tool_id
                     ))
             
-            print(f"🏁 Tool execution completed. {len(tool_results)} results generated")
+            if self.verbose_logging:
+                print(f"🏁 Tool execution completed. {len(tool_results)} results generated")
             return {"messages": tool_results}
 
         # --- Graph wiring ---
         graph.add_node("agent", agent_node)
-        graph.add_node("tools", tool_node_with_logging)
+        graph.add_node("tools", tool_node)
 
         # start -> agent
         graph.add_edge(START, "agent")

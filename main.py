@@ -1,4 +1,6 @@
 import time
+import argparse
+import os
 from game_state import GameState
 from human_player import HumanPlayer
 from llm_neighbor import LLMNeighbor
@@ -7,7 +9,7 @@ from actions import ActionHandler
 from dotenv import load_dotenv
 from config import *
 
-def main():
+def main(verbose_logging=True, use_ollama=False):
     # Initialize game state
     game_state = GameState()
     
@@ -20,14 +22,14 @@ def main():
     
     # Create LLM Neighbors (limited by config)
     for i, name in enumerate(neighbor_names[:MAX_NEIGHBORS]):
-        llm_neighbor = LLMNeighbor(name, game_state, player_id=i+1)
+        llm_neighbor = LLMNeighbor(name, game_state, player_id=i+1, verbose_logging=verbose_logging, use_ollama=use_ollama)
         neighbors.append(llm_neighbor)
     
     game_state.initialize_game(player, neighbors)
     
     # Initialize renderer and action handler
     renderer = Renderer()
-    action_handler = ActionHandler(game_state)
+    action_handler = ActionHandler(game_state, verbose_logging)
     action_handler.set_renderer(renderer)  # Connect renderer to action handler
     
     # Connect renderer to game state for attack tracking
@@ -76,4 +78,15 @@ def main():
 
 if __name__ == "__main__":
     load_dotenv()
-    main()
+    
+    # Set up command line argument parsing
+    parser = argparse.ArgumentParser(description="Run the Neighbors game simulation")
+    parser.add_argument("-v", "--verbose", action="store_true", 
+                       help="Enable verbose logging for AI neighbors")
+    parser.add_argument("--ollama", action="store_true",
+                       help="Use ChatOllama instead of ChatOpenAI for AI neighbors")
+    
+    args = parser.parse_args()
+    
+    # Run the game with the specified settings
+    main(verbose_logging=args.verbose, use_ollama=args.ollama)

@@ -107,7 +107,6 @@ class Renderer:
         print("4. Attack Neighbor")
         print("5. Send Tribute")
         print("6. End Turn")
-        print("7. View Detailed Status")
     
     def display_final_results(self, game_state):
         """Display final game results"""

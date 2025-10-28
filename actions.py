@@ -1,13 +1,20 @@
 from config import *
+import os
 
 class ActionHandler:
-    def __init__(self, game_state):
+    def __init__(self, game_state, verbose_logging=True):
         self.game_state = game_state
         self.renderer = None  # Will be set by main game loop
+        self.verbose_logging = verbose_logging
     
     def set_renderer(self, renderer):
         """Set the renderer reference"""
         self.renderer = renderer
+    
+    def clear_console_if_needed(self):
+        """Clear console if not in verbose mode"""
+        if not self.verbose_logging:
+            os.system('clear')
     
     def handle_player_actions(self, player):
         """Handle player input and actions"""
@@ -17,22 +24,25 @@ class ActionHandler:
             self.renderer.display_action_menu()
             
             try:
-                choice = input("\nChoose an action (1-9): ").strip()
+                choice = input("\nChoose an action (1-6): ").strip()
                 
                 if choice == "1":
                     self.handle_send_message(player)
+                    self.clear_console_if_needed()
                 elif choice == "2":
                     self.handle_recruit_soldiers(player)
+                    self.clear_console_if_needed()
                 elif choice == "3":
                     self.handle_dismiss_soldiers(player)
+                    self.clear_console_if_needed()
                 elif choice == "4":
                     self.handle_attack(player)
+                    self.clear_console_if_needed()
                 elif choice == "5":
                     self.handle_send_tribute(player)
+                    self.clear_console_if_needed()
                 elif choice == "6":
                     break  # End turn
-                elif choice == "7":
-                    self.display_detailed_status(player)
                 else:
                     print("Invalid choice. Please try again.")
                     
@@ -194,15 +204,3 @@ class ActionHandler:
             result = "Please enter valid numbers."
             self.renderer.set_last_action_result(result, self.game_state.turn)
     
-    def display_detailed_status(self, player):
-        """Display detailed status information"""
-        print(f"\nDetailed Status for {player.name}:")
-        print(f"Land: {player.land}")
-        print(f"Peasants: {player.peasants}")
-        print(f"Soldiers: {player.soldiers}")
-        print(f"Food Production: {player.food_production}")
-        print(f"Food Consumption: {player.food_consumption}")
-        print(f"Net Food: {player.net_food}")
-        print(f"Total Power: {player.get_total_power():.1f}")
-        
-        input("\nPress Enter to continue...")
