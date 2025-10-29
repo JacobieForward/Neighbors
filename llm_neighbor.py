@@ -4,12 +4,13 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import tools_condition
-#from langchain_ollama import ChatOllama
+from langchain_ollama import ChatOllama
 from langgraph.graph import MessagesState
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from requests.auth import HTTPBasicAuth
 from config import *
 import os
 
@@ -22,9 +23,10 @@ class LLMNeighbor:
 
         # Initialize LLM based on use_ollama parameter
         if use_ollama:
-            from langchain_ollama import ChatOllama
+            authorization = HTTPBasicAuth(os.getenv("NGROK_USER"), os.getenv("NGROK_PASS"))
             self.llm = ChatOllama(
-                base_url="http://localhost:11434",
+                base_url=os.getenv("NGROK_URL"),
+                auth=authorization,
                 model="gpt-oss:20b",
                 temperature=0.6,
                 top_p=0.8,
