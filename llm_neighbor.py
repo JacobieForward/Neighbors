@@ -526,7 +526,7 @@ class LLMNeighbor:
                             elif tool_name == 'get_relevant_rules':
                                 print(f"{self.name} consulted the rulebook")
                     else:
-                        print(f"{self.name} took no action this turn")
+                        print(f"{self.name} finished their turn")
 
                 return {"messages": [response]}
             except Exception as e:
